@@ -24,4 +24,5 @@ First prototype is the roaster.
 
 ## Docs
 
-- [Design document](docs/design.md) — v0.5 (concept)
+- [Design document](docs/design.md) — v0.6 (concept)
+- [Sprite layer system](docs/sprite-layers.md) — tree state decomposition, palette ramps

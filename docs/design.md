@@ -1,6 +1,6 @@
 # Coffee Sim — Design Document
 
-**Version:** 0.5 (concept)
+**Version:** 0.6 (concept)
 **Status:** Pre-prototype. Systems spine established, setting locked, scope boundaries drawn, prototype order locked (§14), technical direction locked (§15).
 
 **Changes since 0.1:** Setting locked to Vietnam's Central Highlands (§3). Two-crop Robusta/Arabica system added (§4). Intercropping cut (see §7.2). Café menu expanded around Vietnamese drink culture (§5).
@@ -10,6 +10,8 @@
 **Changes since 0.3:** Prototype order locked — **roaster first** (§14). Previous owner given a working name, the Old Man (§11). Both removed from open questions (§13).
 
 **Changes since 0.4:** Technical direction added and locked (§15): Godot 4, C# simulation core with an engine-free sim boundary, 2D pixel art in an oblique projection, terracing as the elevation device, PC only.
+
+**Changes since 0.5:** Sprite layer system specified (sprite-layers.md), closing the §15 item that blocked final art. Fruit palettes exempted from global tinting (§15).
 
 ---
 
@@ -577,7 +579,7 @@ PC-only is also what makes C# clean here — export targets were always the weak
 
 **Why 2D:**
 
-- **§9.1 is a color-discrimination mechanic.** Picking is reading ripeness off cherry color, with the deliberate trap that overripe sits nearer to ripe than green does, and Yellow Bourbon breaking the learned reading. Dynamic 3D lighting makes the same cherry a different color in sun and shade — it fights the mechanic. A controlled pixel palette makes the states exact by construction.
+- **§9.1 is a color-discrimination mechanic.** Picking is reading ripeness off cherry color, with the deliberate trap that overripe sits nearer to ripe than green does, and Yellow Bourbon breaking the learned reading. Dynamic 3D lighting makes the same cherry a different color in sun and shade — it fights the mechanic. A controlled pixel palette makes the states exact by construction. **This cuts both ways:** a global day/night or weather tint in 2D reintroduces the same corruption, so fruit palettes are exempt from global tinting (see sprite-layers.md).
 - **§8 caps hands-on scope to one home block**, so per-tree visual state is a tractable asset count rather than a plantation's worth.
 - **Higher floor for charm.** Mediocre pixel art still reads as appealing; mediocre 3D reads as ugly. On a small team that's a real argument.
 - **§12's café rush wants a legible room from above** — native to 2D.
@@ -599,9 +601,16 @@ Most of this game happens at a station — the roaster is a dial and a curve, fe
 | Roaster / fermentation / sorting | Snap-to station view, effectively UI |
 | Picking | Undecided — see below |
 
-### Decide the sprite layer system before drawing anything final
+### Sprite layer system
 
-The state §11 requires to be visible — pruning quality, canopy density, rust, stumped or grafted blocks, weed pressure — plus §9.1's ripeness and varietal color, has to decompose into **base + overlay + palette swap** rather than one sprite per combination. Layering turns the multiplication into addition; skipping the decision turns it back into multiplication a year in, when it's expensive.
+**Specified in [docs/sprite-layers.md](sprite-layers.md).** Decided before final art, deliberately.
+
+The state §11 requires to be visible — pruning quality, canopy density, rust, stumped or grafted blocks, weed pressure — plus §9.1's ripeness and varietal color, decomposes into **frame + anchors + palette** rather than one sprite per combination. Drawn naively those axes multiply out past 600 sprites; the decomposition lands near 37.
+
+Two consequences worth surfacing at design altitude:
+
+- **An anchor is a branch is a §9.1 picking decision.** Foliage clumps and fruit clusters both attach at anchor points on the frame sprite, which makes canopy density and per-branch ripeness *data* rather than art. It also means anchor count is a design number living in an art file — the frame defines how many decisions a tree presents.
+- **The ripeness palette ramps are where the picking mechanic actually lives.** §9.1's "the dangerous confusion is on the far side" is a perceptual spacing requirement on the ramp — wide gap green-to-ripe, narrow gap ripe-to-overripe. Yellow Bourbon breaking the trained reading falls out of its ramp being inherently tighter. Neither is coded anywhere.
 
 **Fallback if variation gets hairy:** the Dead Cells pipeline — model in 3D, render down to sprite sheets, hand-touch the pixels. Parametric variation with a pixel-art result. Sakuna (§1) does its own version of this, 3D assets presented on a 2D plane.
 
