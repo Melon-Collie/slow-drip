@@ -1,11 +1,13 @@
 # Coffee Sim — Design Document
 
-**Version:** 0.3 (concept)
-**Status:** Pre-prototype. Systems spine established, setting locked, scope boundaries drawn, prototype order TBD.
+**Version:** 0.4 (concept)
+**Status:** Pre-prototype. Systems spine established, setting locked, scope boundaries drawn, prototype order locked (§14).
 
 **Changes since 0.1:** Setting locked to Vietnam's Central Highlands (§3). Two-crop Robusta/Arabica system added (§4). Intercropping cut (see §7.2). Café menu expanded around Vietnamese drink culture (§5).
 
 **Changes since 0.2:** Geography locked to a single sloped property near Da Lat with an Arabica/Robusta elevation band (§3). Café located on the farm, not in town (§3). Tourist/local customer split added (§3).
+
+**Changes since 0.3:** Prototype order locked — **roaster first** (§14). Removed from open questions (§13).
 
 ---
 
@@ -523,17 +525,20 @@ A guest arrives as a competent roaster with useful instincts rather than a stran
 ## 13. Open questions
 
 1. **Salvage ceiling.** How much should dark roasting rescue a bad ferment? Too much and the tank-watching layer stops mattering.
-2. **Prototype order.** Fermentation (scheduling, hardest to get right) vs. roasting (best game feel, best vertical slice demo)?
-3. **Café depth.** How much Overcooked is in the café rush, vs. how much is it a passive report during harvest?
-4. **Number of blocks.** How many arm's-length plots before the strategic layer gets noisy?
-5. **Crop balance.** Is there a Robusta:Arabica ratio the café makes *correct*? If so it's a solved puzzle — needs the ratio to shift with menu strategy, customer mix, and harvest luck.
-6. **Environmental history.** Deforestation and groundwater depletion are real to this setting. Engage, acknowledge lightly, or sidestep? Irrigation-triggered flowering sits right on this line.
-7. **Drink unlock pacing.** Does the player start with the full phin menu, or earn drinks? Egg coffee and salt coffee are regional specialties with their own stories — good unlock candidates.
-8. **Does the old man have a name yet.**
+2. **Café depth.** How much Overcooked is in the café rush, vs. how much is it a passive report during harvest?
+3. **Number of blocks.** How many arm's-length plots before the strategic layer gets noisy?
+4. **Crop balance.** Is there a Robusta:Arabica ratio the café makes *correct*? If so it's a solved puzzle — needs the ratio to shift with menu strategy, customer mix, and harvest luck.
+5. **Environmental history.** Deforestation and groundwater depletion are real to this setting. Engage, acknowledge lightly, or sidestep? Irrigation-triggered flowering sits right on this line.
+6. **Drink unlock pacing.** Does the player start with the full phin menu, or earn drinks? Egg coffee and salt coffee are regional specialties with their own stories — good unlock candidates.
+7. **Does the old man have a name yet.**
+
+*Resolved in 0.4: prototype order — roaster first (§14).*
 
 ---
 
-## 14. Suggested prototype order
+## 14. Prototype order
+
+**Locked: roaster first.**
 
 1. **Roaster** — dial, lag model, RoR curve, first-crack audio. Smallest self-contained system, best feel test, and the clearest signal on whether the "momentum control" thesis works.
 2. **Fermentation + tank scheduling** — the hardest system to balance and the one most likely to change the rest of the design.
