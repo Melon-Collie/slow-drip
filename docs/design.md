@@ -7,7 +7,7 @@
 
 **Changes since 0.2:** Geography locked to a single sloped property near Da Lat with an Arabica/Robusta elevation band (§3). Café located on the farm, not in town (§3). Tourist/local customer split added (§3).
 
-**Changes since 0.3:** Prototype order locked — **roaster first** (§14). Removed from open questions (§13).
+**Changes since 0.3:** Prototype order locked — **roaster first** (§14). Previous owner given a working name, the Old Man (§11). Both removed from open questions (§13).
 
 ---
 
@@ -422,18 +422,16 @@ Progression you can literally see.
 
 ---
 
-## 11. Narrative: the previous owner
+## 11. Narrative: the Old Man
 
-**Working name: Ông Nội.** Tentative, not locked.
+**Working name: the Old Man.** Already how this document refers to him in its own
+voice (§9.1, and throughout this section), so the name and the register agree.
 
-*Implication to decide:* ông nội is specifically the paternal grandfather, not a
-general term of respect for an older man (that's ông). Using it makes him
-literally kin and the inheritance literal — which sharpens the generational
-split below into an actual family split, and costs nothing against the
-living-and-retiring rule, since the thing being avoided was the dead relative,
-not the relative. But it raises a question the current framing doesn't have to
-answer: **if the farm skips to you, where is the middle generation?** Worth
-answering deliberately rather than leaving as a hole.
+Kinship-neutral on purpose. It leaves his relation to the player unstated, which
+retires the question a kinship term would have opened — where the middle
+generation went. The one thing it leaves loose: if he isn't family, "inherit"
+(§1) wants a mechanism eventually. Succession, sale, or a handover to someone he
+picked.
 
 **Living and retiring. Not dead.** The dead-relative inheritance is the most worn opening in the genre and it costs you the entire value of the character — an ongoing voice that reacts to what you're doing to their trees.
 
@@ -541,9 +539,8 @@ A guest arrives as a competent roaster with useful instincts rather than a stran
 4. **Crop balance.** Is there a Robusta:Arabica ratio the café makes *correct*? If so it's a solved puzzle — needs the ratio to shift with menu strategy, customer mix, and harvest luck.
 5. **Environmental history.** Deforestation and groundwater depletion are real to this setting. Engage, acknowledge lightly, or sidestep? Irrigation-triggered flowering sits right on this line.
 6. **Drink unlock pacing.** Does the player start with the full phin menu, or earn drinks? Egg coffee and salt coffee are regional specialties with their own stories — good unlock candidates.
-7. **What the player calls him.** Ông Nội is the working name (§11), not locked. English-register alternative under consideration: "Old Man," which is already how the doc refers to him in its own voice. Pending a native-speaker check on whether a grandchild would say "Ông Nội" or just "Ông" in daily address. If the kinship reading sticks, two follow-ons: paternal (nội) vs maternal (ngoại) decides which side of the family the land came down, and the middle generation needs an answer.
 
-*Resolved in 0.4: prototype order — roaster first (§14).*
+*Resolved in 0.4: prototype order — roaster first (§14). Working name for the previous owner — the Old Man (§11).*
 
 ---
 
