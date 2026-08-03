@@ -424,6 +424,17 @@ Progression you can literally see.
 
 ## 11. Narrative: the previous owner
 
+**Working name: Ông Nội.** Tentative, not locked.
+
+*Implication to decide:* ông nội is specifically the paternal grandfather, not a
+general term of respect for an older man (that's ông). Using it makes him
+literally kin and the inheritance literal — which sharpens the generational
+split below into an actual family split, and costs nothing against the
+living-and-retiring rule, since the thing being avoided was the dead relative,
+not the relative. But it raises a question the current framing doesn't have to
+answer: **if the farm skips to you, where is the middle generation?** Worth
+answering deliberately rather than leaving as a hole.
+
 **Living and retiring. Not dead.** The dead-relative inheritance is the most worn opening in the genre and it costs you the entire value of the character — an ongoing voice that reacts to what you're doing to their trees.
 
 ### The farm is their biography
@@ -530,7 +541,7 @@ A guest arrives as a competent roaster with useful instincts rather than a stran
 4. **Crop balance.** Is there a Robusta:Arabica ratio the café makes *correct*? If so it's a solved puzzle — needs the ratio to shift with menu strategy, customer mix, and harvest luck.
 5. **Environmental history.** Deforestation and groundwater depletion are real to this setting. Engage, acknowledge lightly, or sidestep? Irrigation-triggered flowering sits right on this line.
 6. **Drink unlock pacing.** Does the player start with the full phin menu, or earn drinks? Egg coffee and salt coffee are regional specialties with their own stories — good unlock candidates.
-7. **Does the old man have a name yet.**
+7. **Ông Nội.** Working name (§11), not locked. Two things still open: whether he's literally the player's paternal grandfather or the term is affectionate, and — if literal — where the middle generation went.
 
 *Resolved in 0.4: prototype order — roaster first (§14).*
 
