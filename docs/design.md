@@ -541,7 +541,7 @@ A guest arrives as a competent roaster with useful instincts rather than a stran
 4. **Crop balance.** Is there a Robusta:Arabica ratio the café makes *correct*? If so it's a solved puzzle — needs the ratio to shift with menu strategy, customer mix, and harvest luck.
 5. **Environmental history.** Deforestation and groundwater depletion are real to this setting. Engage, acknowledge lightly, or sidestep? Irrigation-triggered flowering sits right on this line.
 6. **Drink unlock pacing.** Does the player start with the full phin menu, or earn drinks? Egg coffee and salt coffee are regional specialties with their own stories — good unlock candidates.
-7. **Ông Nội.** Working name (§11), not locked. Two things still open: whether he's literally the player's paternal grandfather or the term is affectionate, and — if literal — where the middle generation went.
+7. **What the player calls him.** Ông Nội is the working name (§11), not locked. English-register alternative under consideration: "Old Man," which is already how the doc refers to him in its own voice. Pending a native-speaker check on whether a grandchild would say "Ông Nội" or just "Ông" in daily address. If the kinship reading sticks, two follow-ons: paternal (nội) vs maternal (ngoại) decides which side of the family the land came down, and the middle generation needs an answer.
 
 *Resolved in 0.4: prototype order — roaster first (§14).*
 
