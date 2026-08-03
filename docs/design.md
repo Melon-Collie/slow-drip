@@ -1,13 +1,15 @@
 # Coffee Sim — Design Document
 
-**Version:** 0.4 (concept)
-**Status:** Pre-prototype. Systems spine established, setting locked, scope boundaries drawn, prototype order locked (§14).
+**Version:** 0.5 (concept)
+**Status:** Pre-prototype. Systems spine established, setting locked, scope boundaries drawn, prototype order locked (§14), technical direction locked (§15).
 
 **Changes since 0.1:** Setting locked to Vietnam's Central Highlands (§3). Two-crop Robusta/Arabica system added (§4). Intercropping cut (see §7.2). Café menu expanded around Vietnamese drink culture (§5).
 
 **Changes since 0.2:** Geography locked to a single sloped property near Da Lat with an Arabica/Robusta elevation band (§3). Café located on the farm, not in town (§3). Tourist/local customer split added (§3).
 
 **Changes since 0.3:** Prototype order locked — **roaster first** (§14). Previous owner given a working name, the Old Man (§11). Both removed from open questions (§13).
+
+**Changes since 0.4:** Technical direction added and locked (§15): Godot 4, C# simulation core with an engine-free sim boundary, 2D pixel art in an oblique projection, terracing as the elevation device, PC only.
 
 ---
 
@@ -552,6 +554,63 @@ A guest arrives as a competent roaster with useful instincts rather than a stran
 2. **Fermentation + tank scheduling** — the hardest system to balance and the one most likely to change the rest of the design.
 3. **Picking passes** — validates the per-branch decision as a rhythm.
 4. **Vertical slice:** one harvest season, one block, wet mill, weekly roast, minimal café.
+
+---
+
+## 15. Technical direction
+
+**Locked: Godot 4, C# simulation core, 2D pixel art in an oblique projection. PC only.**
+
+### Engine: Godot 4
+
+Chosen on existing fluency more than on merits — which is usually the right basis. PC-only removes the one real strike against it, since console export was the objection and there's no console target. And it converges with the presentation call below: **Godot's 2D half is its stronger half**, so going 2D also avoids the less mature part of the engine. The art direction and the engine choice reinforce each other rather than trading off.
+
+### Language and the sim boundary
+
+**C# for the simulation core.** GDScript is fine for glue and UI — Godot runs both, and the boundary is what matters, not language uniformity.
+
+**The rule §12 actually needs: the simulation compiles without the engine.** No `Godot` type anywhere in the sim namespace. That makes the architectural constraint *checkable in CI* rather than a discipline someone has to remember at 2am. Everything addressable as *station N operated by player X*; presentation strictly downstream, reading sim state and never holding it. Multiplayer then becomes a transport swap, as §12 requires.
+
+PC-only is also what makes C# clean here — export targets were always the weak spot, never the language. **If browser builds for playtesting matter, verify current C# web export support first**, or write the throwaway roaster prototype in GDScript and sidestep the question entirely.
+
+### Presentation: 2D, oblique — not flat top-down
+
+**Why 2D:**
+
+- **§9.1 is a color-discrimination mechanic.** Picking is reading ripeness off cherry color, with the deliberate trap that overripe sits nearer to ripe than green does, and Yellow Bourbon breaking the learned reading. Dynamic 3D lighting makes the same cherry a different color in sun and shade — it fights the mechanic. A controlled pixel palette makes the states exact by construction.
+- **§8 caps hands-on scope to one home block**, so per-tree visual state is a tractable asset count rather than a plantation's worth.
+- **Higher floor for charm.** Mediocre pixel art still reads as appealing; mediocre 3D reads as ugly. On a small team that's a real argument.
+- **§12's café rush wants a legible room from above** — native to 2D.
+
+**Why oblique rather than flat top-down:** §3 is locked on the elevation gradient being readable off the landscape. Flat top-down cannot express height at all.
+
+### Elevation legibility: terracing
+
+The device is **contour terracing.** Steps up the hillside read as height immediately in an oblique view, the Arabica/Robusta boundary becomes a literal band across the map, and parallax ridges of pine and mist behind it carry the depth cue and Da Lat's mood (§3) in the same layer. Terraced contour planting is historically correct for steep Highlands ground, so the legibility device costs nothing in realism.
+
+### Camera: one traversal framing, N station framings
+
+Most of this game happens at a station — the roaster is a dial and a curve, fermentation is tanks and a readout, sorting is a table. Those snap to their own framing and are effectively UI. **Only the traversal camera is a real decision; the rest constrain nothing.**
+
+| Context | Framing |
+|---|---|
+| Farm traversal | Oblique three-quarter, follows the player |
+| Café | Same projection, pulled back to a readable room (§12 rush) |
+| Roaster / fermentation / sorting | Snap-to station view, effectively UI |
+| Picking | Undecided — see below |
+
+### Decide the sprite layer system before drawing anything final
+
+The state §11 requires to be visible — pruning quality, canopy density, rust, stumped or grafted blocks, weed pressure — plus §9.1's ripeness and varietal color, has to decompose into **base + overlay + palette swap** rather than one sprite per combination. Layering turns the multiplication into addition; skipping the decision turns it back into multiplication a year in, when it's expensive.
+
+**Fallback if variation gets hairy:** the Dead Cells pipeline — model in 3D, render down to sprite sheets, hand-touch the pixels. Parametric variation with a pixel-art result. Sakuna (§1) does its own version of this, 3D assets presented on a 2D plane.
+
+### Still open
+
+1. **Pixel resolution and character scale.** Drives everything downstream in the art pipeline.
+2. **Does picking get its own framing?** §9.1 is a per-branch judgment, which wants to sit closer than traversal — but that makes picking a fifth station rather than something done while walking the block.
+3. **Co-op presentation.** Assumed networked clients per §12's farmhand model, each with an independent camera. Splitscreen would change this.
+4. **Godot C# web export status** — only matters if browser playtesting is wanted.
 
 ---
 

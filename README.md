@@ -15,6 +15,13 @@ The hook: **you drink your own mistakes for twelve months.**
 
 > Agronomy sets the ceiling. Craft sets the recovery. Nothing downstream ever adds quality.
 
+## Technical direction
+
+Godot 4, C# simulation core, 2D pixel art, PC only. The simulation compiles
+without the engine — no `Godot` type in the sim namespace. See [§15](docs/design.md#15-technical-direction).
+
+First prototype is the roaster.
+
 ## Docs
 
-- [Design document](docs/design.md) — v0.3 (concept)
+- [Design document](docs/design.md) — v0.5 (concept)
