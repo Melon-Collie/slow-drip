@@ -21,7 +21,7 @@ none of it.
 ## Running it
 
 ```sh
-dotnet test sim/SlowDrip.sln                           # 42 tests, about a second
+dotnet test sim/SlowDrip.sln                           # 50 tests, about a second
 dotnet run --project sim/tools/RoastLab                # every reference roast
 dotnet run --project sim/tools/RoastLab textbook       # one of them
 dotnet run --project sim/tools/RoastLab textbook --csv # the curve, for plotting
@@ -103,6 +103,90 @@ roaster most needs — a crack sharp enough to time against.
 The player reads `BeanProbe`, never `BeanTemp`. The probe starts at the preheated
 drum temperature while the beans are at room temperature, and the turning point
 is that instrument catching up — an artefact, not an event.
+
+## Failing fairly
+
+A stall used to be the worst kind of failure a game can ship: invisible, delayed,
+and unrecoverable. You crossed the line minutes before anything looked wrong, and
+then watched a dead batch run out a twenty-minute clock. Two changes, neither of
+which costs anything in realism.
+
+**The roast reports its own energy balance.** `NetBeanWatts` is what the drum is
+giving plus what the beans are generating minus what evaporation is taking. Below
+zero the roast is losing. `DrumHeadroom` is the same thing as a temperature: how
+much hotter the drum is than the beans, which is exactly what a roaster reads off
+the environmental gauge on a real machine. Both are **state, not prophecy** —
+design.md §9.3's rule is *"expose state, hide outcome"*, and these say the roast
+is losing heat right now, not that it is doomed or how it will taste. A player who
+adds gas puts it back positive.
+
+The reading is honest and it is early. Against a healthy roast at the same moment:
+
+| Time | Healthy | Dying | |
+|---|---|---|---|
+| 8:00 | 282 W | 266 W | indistinguishable |
+| 9:00 | 264 W | 189 W | sagging |
+| 9:30 | 302 W | 158 W | clearly wrong |
+| 10:00 | 392 W | 125 W | |
+| 11:00 | *dropped* | −26 W | now it is fatal |
+
+The sign flips a minute before the roast dies; the *level* diverges two and a half
+minutes before that. No successful reference roast ever reads negative, so the
+warning stays worth listening to.
+
+**The drum gets emptied.** `MaxRoastSeconds` caps the roast, and a pilot can
+`Abandon` — give up once the beans have been losing heat for a solid minute with
+drop temperature still out of reach. A brief dip across first crack is normal and
+does not count. A failed roast used to cost twice a good one; now it costs about
+the same.
+
+| | Outcome | Ended | Cost vs a good roast |
+|---|---|---|---|
+| textbook | Dropped | 10.1 min | — |
+| pre-crack gas 0.18 | Abandoned | 10.4 min | 103% |
+| cut too early | Abandoned | 11.2 min | 111% |
+| mixed screen | Abandoned | 11.9 min | 118% |
+| browning 0.36 | Abandoned | 14.2 min | 142% |
+
+## Is it fair?
+
+Every knob now fails in one direction only, with no holes in the middle. Below,
+`ok` means dropped at 213°C with 15–25% development, `(n%)` means it finished but
+off-target, and `Nm` means the roast was given up on after N minutes.
+
+```
+mid-roast browning dial
+   0.34   0.36   0.38   0.40   0.42   0.44   0.46   0.48   0.50   0.52
+  15.0m  14.2m  13.6m  (29%)  (26%)   25%    23%    22%    22%    21%
+
+pre-crack gas
+   0.14   0.16   0.18   0.20   0.22   0.24   0.26   0.28   0.30   0.32   0.34
+  10.1m  10.2m  10.4m  10.7m  11.2m  (32%)   23%    21%    19%    18%    17%
+
+when the pre-crack cut is made (seconds before the crack)
+     90     75     60     50     45     40     30     20
+  11.2m  11.2m  12.1m  (25%)   23%    22%    20%    18%
+```
+
+Each row reads left-to-right as one story: too little heat stalls, more heat
+shortens development, and there is a band in between. That was not always true —
+an earlier version of this model had a hole in the middle of the browning row,
+where a setting that worked, a setting that failed, and a setting that worked
+again sat next to each other with no rule connecting them. Nothing was done about
+fairness directly; the two-pool moisture model and the bean population each
+replaced a hard switch with a mechanism, and mechanisms turn cliffs into slopes.
+
+That is worth keeping as a working principle: **on this model, adding physics has
+fixed fairness more reliably than clamping would have.**
+
+What is left is that the low end is still a cliff rather than a slope — 0.24
+pre-crack gas finishes, 0.22 does not. A minimum burner floor helps the browning
+phase (0.10 rescues the mixed-screen lot, 0.15 makes the whole browning row work)
+but never rescues a roast whose gas was cut too early, because the gas needed to
+*hold* a roast rises as the beans get hotter. A flat floor is the wrong shape. The
+realistic version is a heavier drum, which coasts in proportion — at the cost of
+more lag, which is the mechanic, so it wants a feel test rather than a decision on
+paper.
 
 ## Reference roasts
 

@@ -5,18 +5,15 @@ namespace SlowDrip.RoastLab;
 /// <summary>A named roast: how the dial gets worked, and on what lot.</summary>
 public sealed record Scenario(string Name, string Intent, Func<RoastLog> Run)
 {
-    private const double MaxSeconds = 1200.0;
-
     public static Scenario Named(string name) =>
         All.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase))
         ?? throw new ArgumentException($"No scenario '{name}'. Known: {string.Join(", ", All.Select(s => s.Name))}");
 
     private static Func<RoastLog> Pilot(Func<IRoastPilot> pilot, RoastCharge? charge = null) =>
-        () => RoastRunner.Run(pilot(), charge: charge, maxSeconds: MaxSeconds);
+        () => RoastRunner.Run(pilot(), charge: charge);
 
     private static Func<RoastLog> Trace(DialTrace trace, RoastCharge? charge = null) =>
-        () => RoastRunner.Run(trace, charge: charge, maxSeconds: MaxSeconds,
-            dropWhen: RoastRunner.DropAtTemp(213.0));
+        () => RoastRunner.Run(trace, charge: charge, dropWhen: RoastRunner.DropAtTemp(213.0));
 
     /// <summary>
     /// Each scenario exists to make one claim visible in a CSV, so the model can be

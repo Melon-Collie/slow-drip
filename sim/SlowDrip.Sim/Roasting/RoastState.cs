@@ -45,6 +45,31 @@ public readonly record struct RoastState
     /// <summary>Current self-heating output of the bean mass (W).</summary>
     public double ExothermWatts { get; init; }
 
+    /// <summary>
+    /// Net power into the bean mass (W): what the drum is giving, plus what the
+    /// beans are generating, minus what evaporation is taking. Negative means the
+    /// roast is losing.
+    /// </summary>
+    /// <remarks>
+    /// This is the number that decides whether a roast lives, and it is state
+    /// rather than prophecy — design.md #9.3's rule is "expose state, hide
+    /// outcome", and this is the state side of that line. It says the roast is
+    /// losing heat right now; it does not say how the coffee will taste, or even
+    /// that the roast is doomed. A player who adds gas can put it back positive.
+    /// </remarks>
+    public double NetBeanWatts { get; init; }
+
+    /// <summary>
+    /// How much hotter the drum is than the beans (degC). Below zero the drum is
+    /// pulling heat back out of them.
+    /// </summary>
+    /// <remarks>
+    /// A real roaster reads this off the environmental temperature gauge, which is
+    /// why it is fair to show: it is an instrument they actually have, not a hint
+    /// the game invented.
+    /// </remarks>
+    public double DrumHeadroom => EnvTemp - BeanTemp;
+
     /// <summary>Share of the batch that has ruptured, 0..1.</summary>
     public double CrackedFraction { get; init; }
 

@@ -535,3 +535,127 @@ public class BeanPopulationTests
         Assert.Equal(9000, new RoastCharge { DryMassKg = 1.0, BeansPerKg = 9000 }.BeanCount);
     }
 }
+
+/// <summary>
+/// The two fairness fixes: a roast that is dying should say so while there is
+/// still time to act, and should not take twenty minutes to finish dying.
+/// </summary>
+public class StallLegibilityTests
+{
+    private static RoastLog Run(RoastCharge? charge = null) =>
+        RoastRunner.Run(ReferenceRoasts.Textbook(), charge: charge, sampleInterval: 1.0);
+
+    // ---- Expose state, hide outcome ----------------------------------------
+
+    [Fact]
+    public void Net_heat_flow_agrees_with_which_way_the_beans_are_going()
+    {
+        // The signal has to be true before it can be fair. Net watts is the actual
+        // energy balance, so its sign must match what bean temperature does next.
+        var log = Run();
+
+        // From the second interval on: the sample at t=0 is taken before any step
+        // has run, so it has no balance to report yet.
+        for (var i = 2; i < log.Samples.Count; i++)
+        {
+            var rising = log.Samples[i].BeanTemp > log.Samples[i - 1].BeanTemp;
+            var gaining = log.Samples[i - 1].NetBeanWatts > 0;
+            Assert.True(rising == gaining,
+                $"At t={log.Samples[i].Time}s net was {log.Samples[i - 1].NetBeanWatts:F0}W but bean temp " +
+                $"{(rising ? "rose" : "fell")}");
+        }
+    }
+
+    [Fact]
+    public void Drum_headroom_is_just_the_gauge_a_roaster_already_has()
+    {
+        var log = Run();
+        var sim = new RoasterSim();
+        sim.SetBurner(0.5);
+        sim.Step(300);
+
+        Assert.Equal(sim.State.EnvTemp - sim.State.BeanTemp, sim.State.DrumHeadroom, 9);
+        Assert.NotEmpty(log.Samples);
+    }
+
+    [Fact]
+    public void A_roast_that_works_never_reports_losing_heat()
+    {
+        // No false alarms, or the warning becomes noise the player learns to ignore.
+        foreach (var log in new[] { Run(), Run(ReferenceRoasts.WellSorted), Run(ReferenceRoasts.DenseLot) })
+        {
+            Assert.Equal(RoastOutcome.Dropped, log.Outcome);
+            Assert.DoesNotContain(log.Samples, s => s.Time > 120 && s.NetBeanWatts < 0);
+        }
+    }
+
+    [Fact]
+    public void A_dying_roast_says_so_with_time_left_to_act()
+    {
+        var log = Run(ReferenceRoasts.MixedScreen);
+        Assert.Equal(RoastOutcome.Abandoned, log.Outcome);
+
+        var wentNegative = log.Samples.First(s => s.Time > 120 && s.NetBeanWatts < 0).Time;
+        Assert.True(wentNegative < log.DropTime,
+            "The warning has to arrive before the roast ends, not with it");
+
+        // The real lead is that the level sags long before the sign flips, and the
+        // gap widens as it goes — so the reading is a trend to watch, not a light
+        // that comes on when it is already too late. Compared at fixed times, both
+        // of which land while the healthy roast is still running.
+        var healthy = Run();
+        double Gap(double t) =>
+            log.Samples.First(s => s.Time >= t).NetBeanWatts
+            - healthy.Samples.First(s => s.Time >= t).NetBeanWatts;
+
+        var early = Gap(540);
+        var later = Gap(590);
+
+        Assert.True(early < -20,
+            $"The dying roast should already read low a minute before the flip ({early:F0}W behind)");
+        Assert.True(later < early * 2.0,
+            $"The gap should widen: {early:F0}W at 540s, {later:F0}W at 590s");
+        Assert.True(540 < wentNegative,
+            "Both readings should come from before the sign actually flipped");
+    }
+
+    // ---- Nobody watches a dead batch for twenty minutes --------------------
+
+    [Fact]
+    public void A_failed_roast_is_abandoned_rather_than_run_out_the_clock()
+    {
+        var log = Run(ReferenceRoasts.MixedScreen);
+
+        Assert.Equal(RoastOutcome.Abandoned, log.Outcome);
+        Assert.True(log.DropTime < RoasterConfig.Default.MaxRoastSeconds - 60,
+            $"Should have given up well before the cap, ended at {log.DropTime:F0}s");
+    }
+
+    [Fact]
+    public void Giving_up_needs_a_sustained_loss_not_a_dip()
+    {
+        // The rate of rise dips across first crack in every roast. That must not
+        // read as a dead roast.
+        var log = Run();
+        Assert.Equal(RoastOutcome.Dropped, log.Outcome);
+        Assert.True(log.ReachedFirstCrack);
+    }
+
+    [Fact]
+    public void The_clock_cap_is_honoured_when_nobody_calls_it()
+    {
+        // A recorded trace has no judgement, so the cap is what ends it.
+        var cfg = RoasterConfig.Default with { MaxRoastSeconds = 300.0 };
+        var log = RoastRunner.Run(DialTrace.Constant(0.05), cfg, sampleInterval: 1.0);
+
+        Assert.Equal(RoastOutcome.TimedOut, log.Outcome);
+        Assert.InRange(log.DropTime, 299.0, 301.0);
+    }
+
+    [Fact]
+    public void Outcome_distinguishes_finishing_from_giving_up()
+    {
+        Assert.True(Run().Succeeded);
+        Assert.False(Run(ReferenceRoasts.MixedScreen).Succeeded);
+    }
+}

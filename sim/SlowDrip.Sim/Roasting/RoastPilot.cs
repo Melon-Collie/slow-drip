@@ -17,6 +17,16 @@ public interface IRoastPilot
 
     /// <summary>True when the beans should come out.</summary>
     bool Drop(in RoastState state);
+
+    /// <summary>
+    /// True when the roast is not worth finishing and the drum should be emptied.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Drop"/> because they are different acts. Dropping
+    /// is the roast working; abandoning is cutting the loss. Defaults to never,
+    /// so a recorded trace simply plays out.
+    /// </remarks>
+    bool Abandon(in RoastState state) => false;
 }
 
 /// <summary>Replays a recorded trace and drops at a fixed development ratio.</summary>
@@ -68,6 +78,7 @@ public sealed class DoctrinePilot : IRoastPilot
     private readonly double _firstCrackTemp;
     private readonly double _leadSeconds;
     private bool _madePreCrackCut;
+    private double _losingSince = -1.0;
 
     /// <summary>Gas steps through the drying phase, before any prediction matters.</summary>
     private readonly DialTrace _opening;
@@ -139,4 +150,28 @@ public sealed class DoctrinePilot : IRoastPilot
     }
 
     public bool Drop(in RoastState state) => state.FirstCrack && state.BeanProbe >= _dropTemp;
+
+    /// <summary>
+    /// Give up once the beans have been losing heat for a solid minute with the
+    /// drop temperature still out of reach.
+    /// </summary>
+    /// <remarks>
+    /// A roaster does not need a stall to be over to know it is happening — the
+    /// drum reads colder than the beans and the curve is going the wrong way. The
+    /// minute of patience is there so a brief dip across first crack, which is
+    /// normal, does not get mistaken for a dead roast.
+    /// </remarks>
+    public bool Abandon(in RoastState state)
+    {
+        if (state.BeanProbe >= _dropTemp) return false;
+
+        if (state.NetBeanWatts >= 0.0)
+        {
+            _losingSince = -1.0;
+            return false;
+        }
+
+        if (_losingSince < 0.0) _losingSince = state.Time;
+        return state.Time - _losingSince >= 60.0;
+    }
 }

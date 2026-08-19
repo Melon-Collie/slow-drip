@@ -218,6 +218,18 @@ public sealed record RoasterConfig
     public double RorSmoothing { get; init; } = 4.0;
 
     /// <summary>
+    /// Longest a roast is allowed to run before the drum is emptied regardless (s).
+    /// </summary>
+    /// <remarks>
+    /// Nobody stands and watches a dead batch for twenty minutes. A real roaster
+    /// dumps it and charges the next one, so a failed roast should cost a couple of
+    /// minutes of the player's patience rather than the same wall-clock time as a
+    /// good one. This is the one fairness fix that costs nothing in realism —
+    /// it is letting the player do what a person would already do.
+    /// </remarks>
+    public double MaxRoastSeconds { get; init; } = 900.0;
+
+    /// <summary>
     /// The reference machine. Tuned on the reference dial trace against published
     /// targets: turning point near 00:50, a rate of rise gliding to roughly
     /// 10 degC/min by mid-roast and 5 degC/min at first crack, first crack near

@@ -51,6 +51,7 @@ public sealed class RoasterSim
     private double _coreMoisture;
     private double _reactantRemaining = 1.0;
     private double _exothermWatts;
+    private double _netBeanWatts;
     private double _popRate;
     private bool _firstCrack;
     private double _firstCrackTime = -1.0;
@@ -90,6 +91,7 @@ public sealed class RoasterSim
         CoreMoisture = _coreMoisture,
         ReactantRemaining = _reactantRemaining,
         ExothermWatts = _exothermWatts,
+        NetBeanWatts = _netBeanWatts,
         CrackedFraction = _beans.CrackedFraction,
         PopsPerSecond = _popRate,
         FirstCrack = _firstCrack,
@@ -167,8 +169,10 @@ public sealed class RoasterSim
             _reactantRemaining -= reacted;
         }
 
+        _netBeanWatts = qEnvToBean + _exothermWatts - qEvaporation;
+
         var dEnv = (qBurner - qEnvToBean - qEnvLoss) / _cfg.EnvHeatCapacity;
-        var dBean = (qEnvToBean + _exothermWatts - qEvaporation) / beanCapacity;
+        var dBean = _netBeanWatts / beanCapacity;
 
         _envTemp += dEnv * dt;
         _beanTemp += dBean * dt;

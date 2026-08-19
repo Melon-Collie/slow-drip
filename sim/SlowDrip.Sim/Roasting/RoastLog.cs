@@ -3,6 +3,22 @@ using System.Text;
 
 namespace SlowDrip.Sim.Roasting;
 
+/// <summary>How a roast finished.</summary>
+public enum RoastOutcome
+{
+    /// <summary>Still going.</summary>
+    Running,
+
+    /// <summary>The beans came out on purpose, at the temperature they were wanted at.</summary>
+    Dropped,
+
+    /// <summary>The roaster gave up on it and emptied the drum.</summary>
+    Abandoned,
+
+    /// <summary>It ran out the clock without anyone calling it.</summary>
+    TimedOut,
+}
+
 /// <summary>One recorded instant of a roast.</summary>
 public readonly record struct RoastSample(
     double Time,
@@ -14,6 +30,7 @@ public readonly record struct RoastSample(
     double SurfaceMoisture,
     double CoreMoisture,
     double ExothermWatts,
+    double NetBeanWatts,
     double CrackedFraction,
     double PopsPerSecond,
     RoastPhase Phase)
@@ -41,6 +58,12 @@ public sealed class RoastLog
 
     /// <summary>Probe temperature at drop (degC).</summary>
     public double DropTemp { get; internal set; }
+
+    /// <summary>How the roast finished.</summary>
+    public RoastOutcome Outcome { get; internal set; } = RoastOutcome.Running;
+
+    /// <summary>True when the beans came out on purpose rather than by giving up.</summary>
+    public bool Succeeded => Outcome == RoastOutcome.Dropped;
 
     /// <summary>Whether the roast reached first crack.</summary>
     public bool ReachedFirstCrack => FirstCrackTime >= 0.0;
@@ -75,7 +98,7 @@ public sealed class RoastLog
     public string ToCsv()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("time_s,burner,env_c,bean_c,probe_c,ror_c_per_min,surface_moisture,core_moisture,exotherm_w,cracked_fraction,pops_per_s,phase");
+        sb.AppendLine("time_s,burner,env_c,bean_c,probe_c,ror_c_per_min,surface_moisture,core_moisture,exotherm_w,net_bean_w,cracked_fraction,pops_per_s,phase");
         foreach (var s in _samples)
         {
             sb.Append(F(s.Time)).Append(',')
@@ -87,6 +110,7 @@ public sealed class RoastLog
               .Append(F(s.SurfaceMoisture)).Append(',')
               .Append(F(s.CoreMoisture)).Append(',')
               .Append(F(s.ExothermWatts)).Append(',')
+              .Append(F(s.NetBeanWatts)).Append(',')
               .Append(F(s.CrackedFraction)).Append(',')
               .Append(F(s.PopsPerSecond)).Append(',')
               .Append(s.Phase)

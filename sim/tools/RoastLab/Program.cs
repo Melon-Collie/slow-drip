@@ -52,7 +52,8 @@ static void Summarise(Scenario s)
     Console.WriteLine(log.ReachedFirstCrack
         ? $"   first crack     {Clock(log.FirstCrackTime)}"
         : "   first crack     never reached");
-    Console.WriteLine($"   drop            {Clock(log.DropTime)} at {log.DropTemp:F1}C");
+    Console.WriteLine($"   ended           {Clock(log.DropTime)} at {log.DropTemp:F1}C — {Verdict(log)}");
+    Console.WriteLine($"   heat balance    {HeatBalance(log)}");
     Console.WriteLine($"   drying floor    {DryingFloor(log):F1} C/min");
     Console.WriteLine($"   crackle         {Crackle(log)}");
     Console.WriteLine(log.DevelopmentTimeRatio >= 0.0
@@ -82,6 +83,24 @@ static string RorSparkline(RoastLog log)
     }
 
     return new string(chars);
+}
+
+static string Verdict(RoastLog log) => log.Outcome switch
+{
+    RoastOutcome.Dropped => "dropped",
+    RoastOutcome.Abandoned => "GAVE UP, roast was losing heat",
+    RoastOutcome.TimedOut => "ran out the clock",
+    _ => "still running",
+};
+
+// When the beans first started losing more heat than they were taking, and how
+// long that warning ran before the roast ended. This is the state the player is
+// shown; whether it is fatal is left for them to find out.
+static string HeatBalance(RoastLog log)
+{
+    var lost = log.Samples.FirstOrDefault(s => s.Time > 120 && s.NetBeanWatts < 0);
+    if (lost.Time <= 0) return $"held positive throughout (low {log.Samples.Where(s => s.Time > 120).Min(s => s.NetBeanWatts):F0} W)";
+    return $"went negative at {Clock(lost.Time)}, {log.DropTime - lost.Time:F0}s before the end";
 }
 
 // What first crack sounds like: how long the batch crackles for, how loud it

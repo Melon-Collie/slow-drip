@@ -27,7 +27,7 @@ public static class RoastRunner
         DialTrace trace,
         RoasterConfig? config = null,
         RoastCharge? charge = null,
-        double maxSeconds = 900.0,
+        double? maxSeconds = null,
         Func<RoastState, bool>? dropWhen = null,
         double sampleInterval = 1.0)
     {
@@ -41,7 +41,7 @@ public static class RoastRunner
         IRoastPilot pilot,
         RoasterConfig? config = null,
         RoastCharge? charge = null,
-        double maxSeconds = 900.0,
+        double? maxSeconds = null,
         double sampleInterval = 1.0)
     {
         ArgumentNullException.ThrowIfNull(pilot);
@@ -52,18 +52,24 @@ public static class RoastRunner
         IRoastPilot pilot,
         RoasterConfig? config,
         RoastCharge? charge,
-        double maxSeconds,
+        double? maxSeconds,
         Func<RoastState, bool> dropWhen,
         double sampleInterval,
         bool useDropWhen)
     {
-        if (maxSeconds <= 0.0) throw new ArgumentOutOfRangeException(nameof(maxSeconds));
+        var cfg = config ?? RoasterConfig.Default;
+
+        // The drum gets emptied one way or another. Left unset this is the config's
+        // cap, so a dead roast costs a couple of minutes rather than running out a
+        // twenty-minute clock nobody is watching.
+        var limit = maxSeconds ?? cfg.MaxRoastSeconds;
+        if (limit <= 0.0) throw new ArgumentOutOfRangeException(nameof(maxSeconds));
         if (sampleInterval <= 0.0) throw new ArgumentOutOfRangeException(nameof(sampleInterval));
 
-        var sim = new RoasterSim(config, charge);
+        var sim = new RoasterSim(cfg, charge);
         var log = new RoastLog();
 
-        var totalSteps = (int)Math.Round(maxSeconds / RoasterSim.FixedDt);
+        var totalSteps = (int)Math.Round(limit / RoasterSim.FixedDt);
         var sampleEvery = Math.Max(1, (int)Math.Round(sampleInterval / RoasterSim.FixedDt));
 
         // Ask the pilot before the first sample, so the log opens with the dial
@@ -81,8 +87,20 @@ public static class RoastRunner
 
             if (step % sampleEvery == 0) Record(log, state);
 
-            if (useDropWhen ? dropWhen(state) : pilot.Drop(state)) break;
+            if (useDropWhen ? dropWhen(state) : pilot.Drop(state))
+            {
+                log.Outcome = RoastOutcome.Dropped;
+                break;
+            }
+
+            if (pilot.Abandon(state))
+            {
+                log.Outcome = RoastOutcome.Abandoned;
+                break;
+            }
         }
+
+        if (log.Outcome == RoastOutcome.Running) log.Outcome = RoastOutcome.TimedOut;
 
         // Always record the final instant, even if it fell between samples.
         if (log.Samples.Count == 0 || log.Samples[^1].Time < state.Time) Record(log, state);
@@ -95,6 +113,6 @@ public static class RoastRunner
 
     private static void Record(RoastLog log, in RoastState s) => log.Add(new RoastSample(
         s.Time, s.Burner, s.EnvTemp, s.BeanTemp, s.BeanProbe, s.RateOfRise,
-        s.SurfaceMoisture, s.CoreMoisture, s.ExothermWatts,
+        s.SurfaceMoisture, s.CoreMoisture, s.ExothermWatts, s.NetBeanWatts,
         s.CrackedFraction, s.PopsPerSecond, s.Phase));
 }
