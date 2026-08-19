@@ -129,7 +129,9 @@ public class RoasterSimTests
         Assert.True(atCrack < mid, "Rate of rise should still be falling at first crack");
         Assert.InRange(log.FirstCrackTime, 420.0, 660.0);
         Assert.InRange(log.DropTime, 520.0, 780.0);
-        Assert.InRange(log.DevelopmentTimeRatio, 0.15, 0.25);
+        // Wide, because the ratio depends on where first crack is called and that
+        // is a reading rather than a fact — see FirstCrackAudibleFraction.
+        Assert.InRange(log.DevelopmentTimeRatio, 0.15, 0.30);
     }
 
     [Fact]
@@ -173,12 +175,10 @@ public class RoasterSimTests
         // Isolate the mechanism: same dial, same everything, with the rupture
         // release turned off. The crash should go with it.
         var withVent = RoasterConfig.Default;
-        var withoutVent = RoasterConfig.Default with { FirstCrackMoistureRelease = 1.0 };
+        var withoutVent = RoasterConfig.Default with { RuptureVentFraction = 0.0 };
 
-        var a = RoastRunner.Run(ReferenceRoasts.HandPlayed, withVent, maxSeconds: MaxSeconds,
-            dropWhen: RoastRunner.DropAtTemp(213.0), sampleInterval: 1.0);
-        var b = RoastRunner.Run(ReferenceRoasts.HandPlayed, withoutVent, maxSeconds: MaxSeconds,
-            dropWhen: RoastRunner.DropAtTemp(213.0), sampleInterval: 1.0);
+        var a = RoastRunner.Run(ReferenceRoasts.Textbook(), withVent, maxSeconds: MaxSeconds, sampleInterval: 1.0);
+        var b = RoastRunner.Run(ReferenceRoasts.Textbook(), withoutVent, maxSeconds: MaxSeconds, sampleInterval: 1.0);
 
         Assert.True(a.ReachedFirstCrack && b.ReachedFirstCrack);
         Assert.True(TroughAfterCrack(a) < TroughAfterCrack(b) - 1.0,
@@ -222,7 +222,7 @@ public class RoasterSimTests
         var textbook = Run(ReferenceRoasts.Textbook());
 
         Assert.True(TroughAfterCrack(textbook) > 0.0, "45s lead should not stall");
-        Assert.InRange(textbook.DevelopmentTimeRatio, 0.15, 0.25);
+        Assert.InRange(textbook.DevelopmentTimeRatio, 0.15, 0.30);
         Assert.InRange(textbook.DropTemp, 210.0, 216.0);
     }
 
@@ -409,5 +409,129 @@ public class RoasterSimTests
 
         Assert.Equal(log.Samples.Count + 1, lines.Length);
         Assert.StartsWith("time_s,burner,env_c", lines[0]);
+    }
+}
+
+/// <summary>
+/// First crack as a population event: design.md #9.4 wants "scattered pops
+/// building" as audio rather than a UI cue, which only works if the pops have a
+/// source.
+/// </summary>
+public class BeanPopulationTests
+{
+    private static RoastLog Run(RoastCharge charge) =>
+        RoastRunner.Run(ReferenceRoasts.Textbook(), charge: charge, maxSeconds: 1200, sampleInterval: 0.5);
+
+    private static double CracklingSeconds(RoastLog log)
+    {
+        var audible = log.Samples.Where(s => s.PopsPerSecond >= 3.0).ToArray();
+        return audible.Length == 0 ? 0.0 : audible[^1].Time - audible[0].Time;
+    }
+
+    [Fact]
+    public void Thresholds_are_laid_out_without_a_random_number_generator()
+    {
+        // Two populations with the same parameters must be identical, or replay
+        // and multiplayer both break (design.md #12).
+        var a = new BeanPopulation(5000, 196.0, 3.5);
+        var b = new BeanPopulation(5000, 196.0, 3.5);
+
+        for (var t = 180.0; t < 215.0; t += 0.25)
+        {
+            a.CrackUpTo(t);
+            b.CrackUpTo(t);
+            Assert.Equal(a.Cracked, b.Cracked);
+        }
+
+        Assert.Equal(1.0, a.CrackedFraction, 6);
+    }
+
+    [Fact]
+    public void A_wider_spread_puts_the_median_bean_in_the_same_place()
+    {
+        var tight = new BeanPopulation(4001, 196.0, 1.0);
+        var wide = new BeanPopulation(4001, 196.0, 8.0);
+
+        tight.CrackUpTo(196.0);
+        wide.CrackUpTo(196.0);
+
+        Assert.InRange(tight.CrackedFraction, 0.49, 0.51);
+        Assert.InRange(wide.CrackedFraction, 0.49, 0.51);
+        Assert.True(wide.FirstCrackTemp < tight.FirstCrackTemp,
+            "A wider lot should have colder outliers going first");
+    }
+
+    [Fact]
+    public void Cracking_is_irreversible()
+    {
+        var beans = new BeanPopulation(1000, 196.0, 3.0);
+        beans.CrackUpTo(200.0);
+        var afterHeat = beans.Cracked;
+
+        Assert.Equal(0, beans.CrackUpTo(150.0));
+        Assert.Equal(afterHeat, beans.Cracked);
+    }
+
+    [Fact]
+    public void The_whole_batch_does_not_crack_at_once()
+    {
+        // The failure this replaced: a hard moisture gate held every bean back
+        // until the batch dried, by which point all of them were past their
+        // rupture temperature, so first crack had no duration at all.
+        var log = Run(RoastCharge.Default);
+        Assert.True(log.ReachedFirstCrack);
+
+        Assert.InRange(CracklingSeconds(log), 45.0, 180.0);
+
+        var atCall = log.Samples.First(s => s.Time >= log.FirstCrackTime).CrackedFraction;
+        Assert.True(atCall < 0.15, $"First crack should be called on the early poppers, not {atCall:P0} of the batch");
+    }
+
+    [Fact]
+    public void Sorting_buys_a_sharper_cue_at_the_roaster()
+    {
+        // The point of the whole feature. A single screen size cracks in a tight
+        // volley; a ragged lot smears the same pops out and never gets loud.
+        var sorted = Run(ReferenceRoasts.WellSorted);
+        var mixed = Run(ReferenceRoasts.MixedScreen);
+
+        Assert.True(CracklingSeconds(sorted) < CracklingSeconds(mixed) * 0.6,
+            $"Sorted lot should crack faster: {CracklingSeconds(sorted):F0}s vs {CracklingSeconds(mixed):F0}s");
+
+        var sortedPeak = sorted.Samples.Max(s => s.PopsPerSecond);
+        var mixedPeak = mixed.Samples.Max(s => s.PopsPerSecond);
+        Assert.True(sortedPeak > mixedPeak * 1.5,
+            $"Sorted lot should crack louder: {sortedPeak:F0}/s vs {mixedPeak:F0}/s");
+    }
+
+    [Fact]
+    public void A_ragged_lot_starts_popping_early_and_can_fool_the_protocol()
+    {
+        // Emergent, not authored. The stragglers read as first crack, the gas comes
+        // down on schedule, and the roast stalls with the batch still cracking.
+        var sorted = Run(ReferenceRoasts.WellSorted);
+        var mixed = Run(ReferenceRoasts.MixedScreen);
+
+        Assert.True(mixed.FirstCrackTime < sorted.FirstCrackTime,
+            "A wider spread should pop its outliers sooner");
+        Assert.True(sorted.DropTemp >= 212.5, "The sorted lot should finish");
+        Assert.True(mixed.DropTemp < 212.5, "The unsorted lot should stall short of drop");
+    }
+
+    [Fact]
+    public void Pops_stop_when_the_roast_stalls()
+    {
+        var log = Run(ReferenceRoasts.MixedScreen);
+        Assert.True(log.Samples[^1].PopsPerSecond < 3.0);
+        Assert.True(log.Samples[^1].CrackedFraction < 1.0,
+            "A stalled roast should leave part of the batch uncracked");
+    }
+
+    [Fact]
+    public void Bean_count_follows_the_charge_weight()
+    {
+        Assert.Equal(6000, RoastCharge.Default.BeanCount);
+        Assert.Equal(3000, new RoastCharge { DryMassKg = 0.5 }.BeanCount);
+        Assert.Equal(9000, new RoastCharge { DryMassKg = 1.0, BeansPerKg = 9000 }.BeanCount);
     }
 }

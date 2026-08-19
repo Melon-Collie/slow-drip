@@ -27,6 +27,7 @@ First prototype is the roaster, built in milestones:
 |---|---|---|
 | **M1** | Headless thermal model, deterministic and engine-free | **done** |
 | M1.5 | Model checked against roasting research; two-pool moisture, depleting exotherm | **done** |
+| M1.6 | First crack as a bean population — pops emerge, sorting quality changes the cue | **done** |
 | M2 | Dial and curves in Godot. Does steering this feel good? | next |
 | M3 | First crack as audio, not UI | |
 | M4 | Development time ratio, then scoring against the quality vector | |

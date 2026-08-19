@@ -74,6 +74,26 @@ public static class ReferenceRoasts
         new DialMove(620, 0.17));
 
     /// <summary>
+    /// A lot sorted to one screen size. First crack arrives as a tight volley the
+    /// player can time a gas reduction against.
+    /// </summary>
+    public static RoastCharge WellSorted { get; } = new() { CrackTempSpread = 2.0 };
+
+    /// <summary>
+    /// A lot that went to the roaster unsorted. The same six thousand pops are
+    /// smeared over nearly three minutes instead of one, they start half a minute
+    /// early, and they never get loud enough to be an obvious cue — so the early
+    /// stragglers read as first crack, the gas comes down too soon, and the roast
+    /// stalls while the bulk of the batch is still cracking.
+    /// </summary>
+    /// <remarks>
+    /// This is #9.2 paying off twice. Sorting is framed there as costing yield to
+    /// protect the score; here it also buys the one piece of information the
+    /// roaster most needs, and no part of the model was told to make that happen.
+    /// </remarks>
+    public static RoastCharge MixedScreen { get; } = new() { CrackTempSpread = 6.0 };
+
+    /// <summary>
     /// A denser, wetter high-grown lot. The hand-played trace misses on it; the
     /// pilot, which watches the curve, adapts.
     /// </summary>

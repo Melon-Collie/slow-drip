@@ -95,5 +95,6 @@ public static class RoastRunner
 
     private static void Record(RoastLog log, in RoastState s) => log.Add(new RoastSample(
         s.Time, s.Burner, s.EnvTemp, s.BeanTemp, s.BeanProbe, s.RateOfRise,
-        s.SurfaceMoisture, s.CoreMoisture, s.ExothermWatts, s.Phase));
+        s.SurfaceMoisture, s.CoreMoisture, s.ExothermWatts,
+        s.CrackedFraction, s.PopsPerSecond, s.Phase));
 }

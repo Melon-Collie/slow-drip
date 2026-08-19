@@ -21,7 +21,7 @@ none of it.
 ## Running it
 
 ```sh
-dotnet test sim/SlowDrip.sln                           # 34 tests, about a second
+dotnet test sim/SlowDrip.sln                           # 42 tests, about a second
 dotnet run --project sim/tools/RoastLab                # every reference roast
 dotnet run --project sim/tools/RoastLab textbook       # one of them
 dotnet run --project sim/tools/RoastLab textbook --csv # the curve, for plotting
@@ -63,6 +63,43 @@ Four terms carry the design:
 - **Thermal mass** comes from the charge, so a dial trace that suited one lot
   misses on the next. No special case implements this.
 
+### First crack is a population, not an event
+
+design.md §9.4 wants first crack to be audio — *"scattered pops building"* — so
+the pops have to come from somewhere. They come from the batch not being uniform.
+Every bean in the drum carries its own rupture temperature; as the batch heats,
+beans cross their thresholds and pop. The pop rate is literally the roast's speed
+multiplied by the population's density at that temperature.
+
+This is the same move `sprite-layers.md` makes for cherries — *the atom is the
+cherry, not the cluster* — and it buys the same thing: what the player perceives
+is what the simulation is actually working with, with no fudge in between.
+
+Thresholds are laid out on stratified quantiles of a logistic distribution, which
+has a closed-form quantile, so there is no random number generator anywhere near
+the simulation and two lots with the same parameters crack identically. The
+scatter that makes crackle sound organic belongs in the audio layer, on top of the
+`PopsPerSecond` the sim reports.
+
+The consequence that makes it worth having: **a bean vents its core water at the
+instant it ruptures**, so the shape of the crash is the shape of the crackle.
+
+| Lot | Spread | Crackle | Peak | Outcome |
+|---|---|---|---|---|
+| Sorted to one screen | 2.0°C | 69s | 266/s | Drops at 213°C, 21% development |
+| Nominal | 3.5°C | 106s | 151/s | Drops at 213°C, 24% development |
+| Unsorted, mixed screen | 6.0°C | 175s | 88/s | **Stalls** — never reaches drop |
+
+The ragged lot fails for a reason nothing in the model was told to produce. Its
+stragglers start popping half a minute early, so first crack gets called too soon
+and the gas comes down on schedule; then the batch bleeds its core water out over
+three minutes while the roast has no heat under it. A sharp crash is survivable.
+A long one is what stalls you.
+
+That makes §9.2's sorting table pay off twice. It is framed there as costing yield
+to protect the score; here it also buys the single piece of information the
+roaster most needs — a crack sharp enough to time against.
+
 The player reads `BeanProbe`, never `BeanTemp`. The probe starts at the preheated
 drum temperature while the beans are at room temperature, and the turning point
 is that instrument catching up — an artefact, not an event.
@@ -79,6 +116,8 @@ is that instrument catching up — an artefact, not an event.
 | `Baked` | Heat pulled at 00:55. Drying floor of 1.5°C/min, crack five minutes late, 8% development |
 | `Scorch` | Full burner. The probe reaches drop temperature before the beans have cracked: burnt outside, raw inside |
 | `HandPlayed` | A fixed trace that works — on the lot it was made for |
+| `WellSorted` | A charge. One screen size: a tight, loud volley at first crack |
+| `MixedScreen` | A charge. Unsorted: a long quiet bleed that stalls the roast |
 | `DenseLot` | A charge, not a roast. `HandPlayed` stalls out on it; `Textbook` adapts |
 
 Most references are pilots rather than recordings, and that is itself a finding.
@@ -124,6 +163,16 @@ than papered over:
   temperature-driven — defensible, since diffusion out of the bean is
   diffusion-limited, but it is a change to make deliberately rather than by
   accident.
+- **Airflow is not modelled, and adding it as a knob would not help yet.** Swept
+  as a single multiplier on convective coupling, drum losses, and moisture
+  removal, it turns out to be near-redundant with the gas dial — it moves peak
+  drum temperature and roast length monotonically and produces the same
+  stall-and-bolt failures. It is also no threat to the lag: dead time moves 18.8s
+  to 17.8s across the whole range, because the lag lives in the probe and the
+  rate-of-rise filter, not the thermal path. A meaningful airflow control needs
+  the heat path split into convective and conductive halves and the bean split
+  into surface and core nodes — which would also get tipping and scorching as
+  distinct defects, and the real cause of first crack.
 
 ## Tuning
 
@@ -145,9 +194,12 @@ Two knobs are design decisions wearing physics costumes:
 - **`RorSmoothing`** decides how far ahead a crash is visible. It is the
   telegraphing dial behind "punishable but telegraphed". Feel-test it; do not
   quietly tune it.
-- **`FirstCrackMoistureRelease`** decides how legible the crash is. The physical
-  crash is partly masked by probe lag, which is realistic and works against
-  §9.4's requirement that failures be visible before they are tasted.
+- **`RuptureVentFraction`** decides how legible the crash is. The physical crash
+  is partly masked by probe lag, which is realistic and works against §9.4's
+  requirement that failures be visible before they are tasted.
+- **`CrackTempSpread`** on the charge decides what first crack sounds like, and
+  therefore how well the player can time the one reduction that matters. It is
+  the lever connecting sorting to roasting.
 
 ## Sources
 

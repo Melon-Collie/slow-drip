@@ -14,6 +14,8 @@ public readonly record struct RoastSample(
     double SurfaceMoisture,
     double CoreMoisture,
     double ExothermWatts,
+    double CrackedFraction,
+    double PopsPerSecond,
     RoastPhase Phase)
 {
     /// <summary>Total remaining water, dry basis.</summary>
@@ -73,7 +75,7 @@ public sealed class RoastLog
     public string ToCsv()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("time_s,burner,env_c,bean_c,probe_c,ror_c_per_min,surface_moisture,core_moisture,exotherm_w,phase");
+        sb.AppendLine("time_s,burner,env_c,bean_c,probe_c,ror_c_per_min,surface_moisture,core_moisture,exotherm_w,cracked_fraction,pops_per_s,phase");
         foreach (var s in _samples)
         {
             sb.Append(F(s.Time)).Append(',')
@@ -85,6 +87,8 @@ public sealed class RoastLog
               .Append(F(s.SurfaceMoisture)).Append(',')
               .Append(F(s.CoreMoisture)).Append(',')
               .Append(F(s.ExothermWatts)).Append(',')
+              .Append(F(s.CrackedFraction)).Append(',')
+              .Append(F(s.PopsPerSecond)).Append(',')
               .Append(s.Phase)
               .AppendLine();
         }

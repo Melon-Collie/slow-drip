@@ -40,6 +40,7 @@ public sealed class RoasterSim
     private readonly RoasterConfig _cfg;
     private readonly RoastCharge _charge;
     private readonly RateOfRiseMeter _ror;
+    private readonly BeanPopulation _beans;
 
     private double _time;
     private double _burner;
@@ -50,6 +51,7 @@ public sealed class RoasterSim
     private double _coreMoisture;
     private double _reactantRemaining = 1.0;
     private double _exothermWatts;
+    private double _popRate;
     private bool _firstCrack;
     private double _firstCrackTime = -1.0;
     private bool _pastTurningPoint;
@@ -59,6 +61,7 @@ public sealed class RoasterSim
         _cfg = config ?? RoasterConfig.Default;
         _charge = charge ?? RoastCharge.Default;
         _ror = new RateOfRiseMeter(_cfg.RorWindow, FixedDt, _cfg.RorSmoothing);
+        _beans = new BeanPopulation(_charge.BeanCount, _charge.CrackTempMean, _charge.CrackTempSpread);
 
         _envTemp = _cfg.ChargeTemp;
         _beanTemp = _cfg.AmbientTemp;
@@ -87,6 +90,8 @@ public sealed class RoasterSim
         CoreMoisture = _coreMoisture,
         ReactantRemaining = _reactantRemaining,
         ExothermWatts = _exothermWatts,
+        CrackedFraction = _beans.CrackedFraction,
+        PopsPerSecond = _popRate,
         FirstCrack = _firstCrack,
         FirstCrackTime = _firstCrackTime,
         Phase = CurrentPhase(),
@@ -111,14 +116,31 @@ public sealed class RoasterSim
 
         var drive = Math.Max(0.0, _beanTemp - _cfg.DryingOnset);
 
-        // Core moisture works its way out to the surface. Once the bean has
-        // ruptured it stops being a slow migration and becomes a vent.
+        // Beans rupture individually. A wet batch resists: the structure is not
+        // brittle yet and the extra water is extra mass to heat, so the whole
+        // population's thresholds sit higher and come down as it dries.
+        var uncrackedBefore = _beans.Count - _beans.Cracked;
+        var wetness = Math.Max(0.0, _surfaceMoisture + _coreMoisture - _cfg.CrackDryReference);
+        var popped = _beans.CrackUpTo(_beanTemp - _cfg.MoistureCrackPenalty * wetness);
+
+        // Core moisture leaves two ways: a slow migration outward in beans that are
+        // still intact, and a rush from each bean at the instant it ruptures. The
+        // second is the crash, and it is paced by how fast the batch is cracking.
         var migrated = 0.0;
         if (_coreMoisture > 0.0)
         {
             var rate = _cfg.CoreMigrationCoefficient * _coreMoisture * drive;
-            if (_firstCrack) rate *= _cfg.FirstCrackMoistureRelease;
             migrated = Math.Min(_coreMoisture, rate * dt);
+
+            if (popped > 0 && uncrackedBefore > 0)
+            {
+                // The water still in the core belongs to the beans still intact, so
+                // each one that goes takes its share of it with it.
+                var share = (double)popped / uncrackedBefore;
+                migrated += (_coreMoisture - migrated) * share * _cfg.RuptureVentFraction;
+            }
+
+            migrated = Math.Min(_coreMoisture, migrated);
             _coreMoisture -= migrated;
             _surfaceMoisture += migrated;
         }
@@ -162,9 +184,12 @@ public sealed class RoasterSim
         // probe back above true bean temperature, which is not a second charge.
         if (!_pastTurningPoint && _beanProbe > previousProbe) _pastTurningPoint = true;
 
-        if (!_firstCrack
-            && _beanTemp >= _cfg.FirstCrackTemp
-            && _surfaceMoisture + _coreMoisture <= _cfg.FirstCrackMaxMoisture)
+        // Smoothed a little so the readout is a rate rather than a per-tick count.
+        // Presentation turns this into scattered pops; the scatter belongs there.
+        var instantRate = popped / dt;
+        _popRate += (instantRate - _popRate) * (dt / (0.5 + dt));
+
+        if (!_firstCrack && _beans.CrackedFraction >= _cfg.FirstCrackAudibleFraction)
         {
             _firstCrack = true;
             _firstCrackTime = _time;

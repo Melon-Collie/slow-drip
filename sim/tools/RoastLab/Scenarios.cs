@@ -55,6 +55,16 @@ public sealed record Scenario(string Name, string Intent, Func<RoastLog> Run)
             Trace(ReferenceRoasts.HandPlayed)),
 
         new Scenario(
+            "well-sorted",
+            "A lot sorted to one screen size. First crack lands as a tight volley\n   you can time a gas reduction against.",
+            Pilot(ReferenceRoasts.Textbook, ReferenceRoasts.WellSorted)),
+
+        new Scenario(
+            "mixed-screen",
+            "The same beans, unsorted. The stragglers pop half a minute early, the\n   crackle never gets loud, and the roast bleeds out and stalls.",
+            Pilot(ReferenceRoasts.Textbook, ReferenceRoasts.MixedScreen)),
+
+        new Scenario(
             "dense-lot",
             "The same fixed trace on a denser, wetter lot. It stalls out entirely:\n   last season's profile does not transfer.",
             Trace(ReferenceRoasts.HandPlayed, ReferenceRoasts.DenseLot)),

@@ -35,6 +35,33 @@ public sealed record RoastCharge
     /// </remarks>
     public double CoreMoistureFraction { get; init; } = 0.5;
 
+    /// <summary>
+    /// Beans per kilogram of dry solids. Screen size, in effect — Robusta and
+    /// peaberry run small and numerous, Maragogype the other way.
+    /// </summary>
+    public double BeansPerKg { get; init; } = 6000.0;
+
+    /// <summary>Temperature the median bean ruptures at (degC).</summary>
+    /// <remarks>Denser, higher-grown beans hold their pressure longer.</remarks>
+    public double CrackTempMean { get; init; } = 196.0;
+
+    /// <summary>
+    /// Spread of rupture temperatures across the batch (degC, one standard
+    /// deviation).
+    /// </summary>
+    /// <remarks>
+    /// The uniformity of the lot, and the single number that decides what first
+    /// crack sounds like. A well-sorted single screen size cracks in a tight
+    /// volley the player can time against; a mixed lot smears the same number of
+    /// pops over twice as long and gives a much worse cue. This is where #9.2's
+    /// sorting table pays off a second time — not as defect removal, as
+    /// information at the roaster.
+    /// </remarks>
+    public double CrackTempSpread { get; init; } = 3.5;
+
+    /// <summary>Beans in the drum.</summary>
+    public int BeanCount => Math.Max(1, (int)Math.Round(DryMassKg * BeansPerKg));
+
     /// <summary>A 1kg lot of nominal density and moisture.</summary>
     public static RoastCharge Default { get; } = new();
 

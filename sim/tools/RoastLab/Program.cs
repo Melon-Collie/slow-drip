@@ -54,6 +54,7 @@ static void Summarise(Scenario s)
         : "   first crack     never reached");
     Console.WriteLine($"   drop            {Clock(log.DropTime)} at {log.DropTemp:F1}C");
     Console.WriteLine($"   drying floor    {DryingFloor(log):F1} C/min");
+    Console.WriteLine($"   crackle         {Crackle(log)}");
     Console.WriteLine(log.DevelopmentTimeRatio >= 0.0
         ? $"   dev time ratio  {log.DevelopmentTimeRatio:P1}"
         : "   dev time ratio  n/a");
@@ -81,6 +82,31 @@ static string RorSparkline(RoastLog log)
     }
 
     return new string(chars);
+}
+
+// What first crack sounds like: how long the batch crackles for, how loud it
+// gets, and the shape of it. This is the audio signal of design.md #9.4.
+static string Crackle(RoastLog log)
+{
+    const string Ramp = " .:-=+*#%";
+    var audible = log.Samples.Where(s => s.PopsPerSecond >= 3.0).ToArray();
+    if (audible.Length == 0) return "silent — never cracked";
+
+    var span = audible[^1].Time - audible[0].Time;
+    var peak = log.Samples.Max(s => s.PopsPerSecond);
+    var start = audible[0].Time;
+
+    var columns = 28;
+    var chars = new char[columns];
+    for (var i = 0; i < columns; i++)
+    {
+        var at = start + span * i / (columns - 1.0);
+        var sample = log.Samples.OrderBy(s => Math.Abs(s.Time - at)).First();
+        var level = peak <= 0 ? 0 : Math.Clamp(sample.PopsPerSecond / peak, 0, 1);
+        chars[i] = Ramp[(int)Math.Round(level * (Ramp.Length - 1))];
+    }
+
+    return $"{span,3:F0}s, peak {peak,4:F0}/s  |{new string(chars)}|";
 }
 
 // The lowest rate of rise seen through the drying phase. A floor near zero is

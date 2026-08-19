@@ -78,17 +78,26 @@ public sealed record RoasterConfig
     public double CoreMigrationCoefficient { get; init; } = 3.0e-5;
 
     /// <summary>
-    /// How much faster core moisture escapes once the bean structure has ruptured.
+    /// Share of its remaining core water a bean lets go at the moment it ruptures
+    /// (0..1).
     /// </summary>
     /// <remarks>
     /// This is the mechanism behind the RoR crash. At first crack the beans vent a
     /// great deal of moisture from their cores in a short period, and that moisture
-    /// is cooler than the bean surface and the probe — so the readout drops sharply
-    /// whether or not the roaster did anything. How deep the crash goes depends on
-    /// how much core moisture is left to vent, which is decided minutes earlier in
-    /// the drying phase.
+    /// is cooler than the bean surface and the probe — so the readout drops whether
+    /// or not the roaster did anything.
+    /// <para>
+    /// Venting is tied to the rate beans are actually rupturing, not to how many
+    /// have ruptured so far, because a bean lets go once. That makes the shape of
+    /// the crash the shape of the crackle — and the sorted lot comes off better on
+    /// both counts. It cracks later and drier, so there is less water to lose, and
+    /// it gets the loss over with in forty seconds. The ragged lot starts cracking
+    /// earlier and wetter and then bleeds for three minutes, draining the roast the
+    /// whole time the gas is already down. A sharp crash is survivable; a long one
+    /// is what stalls you.
+    /// </para>
     /// </remarks>
-    public double FirstCrackMoistureRelease { get; init; } = 14.0;
+    public double RuptureVentFraction { get; init; } = 0.85;
 
     // ---- Exotherm ----------------------------------------------------------
 
@@ -119,18 +128,49 @@ public sealed record RoasterConfig
 
     // ---- First crack -------------------------------------------------------
 
-    /// <summary>Bean temperature at which first crack begins (degC).</summary>
+    /// <summary>
+    /// Bean temperature the roaster expects first crack around (degC).
+    /// </summary>
+    /// <remarks>
+    /// A nominal, not a fact. What the batch actually does is decided per bean by
+    /// <see cref="RoastCharge.CrackTempMean"/> and its spread. This is the number
+    /// a pilot extrapolates against, so a lot that cracks off-nominal is a lot the
+    /// roaster mistimes — which is the right way round.
+    /// </remarks>
     public double FirstCrackTemp { get; init; } = 196.0;
 
     /// <summary>
-    /// Beans will not crack while total moisture is above this (dry basis).
+    /// Share of the batch that has to have ruptured before a roaster would call it.
     /// </summary>
     /// <remarks>
-    /// Usually slack: temperature is what triggers first crack in a normal roast.
-    /// It binds only on a roast hurried through drying, which then cracks late and
-    /// hot — as wet beans do.
+    /// One bean popping is not first crack; it is one bean popping. Roasters call
+    /// it when the pops become a sound rather than an event.
+    /// <para>
+    /// This threshold moves the development time ratio around, which is worth
+    /// knowing before treating that ratio as an absolute. Roasters have the same
+    /// problem: "when did first crack start" is a genuinely contested reading, and
+    /// a lot with a ragged screen size makes it worse by popping stragglers half a
+    /// minute before the batch really goes.
+    /// </para>
     /// </remarks>
-    public double FirstCrackMaxMoisture { get; init; } = 0.050;
+    public double FirstCrackAudibleFraction { get; init; } = 0.05;
+
+    /// <summary>
+    /// How much hotter a wet batch has to get before it will rupture
+    /// (degC per unit of moisture above <see cref="CrackDryReference"/>).
+    /// </summary>
+    /// <remarks>
+    /// Replaces what used to be a hard moisture gate. The gate held every bean
+    /// back until the batch dried, by which point they were all well past their
+    /// rupture temperature — so they all cracked in the same instant and the
+    /// crackle had no duration at all. A penalty that falls as the batch dries
+    /// lets the population cross its thresholds progressively, which is what
+    /// gives first crack a shape.
+    /// </remarks>
+    public double MoistureCrackPenalty { get; init; } = 190.0;
+
+    /// <summary>Moisture at or below which no penalty applies (dry basis).</summary>
+    public double CrackDryReference { get; init; } = 0.020;
 
     /// <summary>
     /// Bean temperature at which the drying phase gives way to browning (degC).

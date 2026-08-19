@@ -45,6 +45,15 @@ public readonly record struct RoastState
     /// <summary>Current self-heating output of the bean mass (W).</summary>
     public double ExothermWatts { get; init; }
 
+    /// <summary>Share of the batch that has ruptured, 0..1.</summary>
+    public double CrackedFraction { get; init; }
+
+    /// <summary>
+    /// Beans rupturing per second. This is the audio signal of design.md #9.4 —
+    /// presentation scatters pops at this rate rather than playing a cue.
+    /// </summary>
+    public double PopsPerSecond { get; init; }
+
     /// <summary>True once first crack has begun.</summary>
     public bool FirstCrack { get; init; }
 
