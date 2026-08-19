@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SlowDrip.RoastLab</RootNamespace>
+    <AssemblyName>roastlab</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../SlowDrip.Sim/SlowDrip.Sim.csproj" />
+  </ItemGroup>
+
+</Project>

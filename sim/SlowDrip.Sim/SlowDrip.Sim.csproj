@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The simulation core compiles without the engine (design.md #15).
+    This project must never reference Godot, Godot.NET.Sdk, or any engine
+    assembly. SimBoundaryTests enforces it; CI runs that test.
+  -->
+  <PropertyGroup>
+    <RootNamespace>SlowDrip.Sim</RootNamespace>
+    <AssemblyName>SlowDrip.Sim</AssemblyName>
+  </PropertyGroup>
+
+</Project>

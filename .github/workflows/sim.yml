@@ -1,0 +1,28 @@
+name: sim
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore sim/SlowDrip.sln
+
+      - name: Build
+        run: dotnet build sim/SlowDrip.sln --no-restore --configuration Release
+
+      # SimBoundaryTests enforces the rule from docs/design.md #15: the simulation
+      # compiles without the engine. Keeping it in CI is the whole point of having
+      # made it checkable rather than a convention.
+      - name: Test
+        run: dotnet test sim/SlowDrip.sln --no-build --configuration Release --verbosity normal
