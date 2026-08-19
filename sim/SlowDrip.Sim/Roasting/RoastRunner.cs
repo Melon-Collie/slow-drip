@@ -32,6 +32,31 @@ public static class RoastRunner
         double sampleInterval = 1.0)
     {
         ArgumentNullException.ThrowIfNull(trace);
+        return Run(new DialTracePilot(trace, dropRatio: 0.20), config, charge, maxSeconds,
+            dropWhen ?? (_ => false), sampleInterval, useDropWhen: dropWhen is not null);
+    }
+
+    /// <summary>Run a controller instead of a recording.</summary>
+    public static RoastLog Run(
+        IRoastPilot pilot,
+        RoasterConfig? config = null,
+        RoastCharge? charge = null,
+        double maxSeconds = 900.0,
+        double sampleInterval = 1.0)
+    {
+        ArgumentNullException.ThrowIfNull(pilot);
+        return Run(pilot, config, charge, maxSeconds, _ => false, sampleInterval, useDropWhen: false);
+    }
+
+    private static RoastLog Run(
+        IRoastPilot pilot,
+        RoasterConfig? config,
+        RoastCharge? charge,
+        double maxSeconds,
+        Func<RoastState, bool> dropWhen,
+        double sampleInterval,
+        bool useDropWhen)
+    {
         if (maxSeconds <= 0.0) throw new ArgumentOutOfRangeException(nameof(maxSeconds));
         if (sampleInterval <= 0.0) throw new ArgumentOutOfRangeException(nameof(sampleInterval));
 
@@ -41,21 +66,22 @@ public static class RoastRunner
         var totalSteps = (int)Math.Round(maxSeconds / RoasterSim.FixedDt);
         var sampleEvery = Math.Max(1, (int)Math.Round(sampleInterval / RoasterSim.FixedDt));
 
-        // Apply the trace before the first sample, so the log opens with the dial
+        // Ask the pilot before the first sample, so the log opens with the dial
         // where the player actually set it rather than at zero.
-        sim.SetBurner(trace.At(0.0));
         var state = sim.State;
+        sim.SetBurner(pilot.Burner(state));
+        state = sim.State;
         Record(log, state);
 
         for (var step = 1; step <= totalSteps; step++)
         {
-            sim.SetBurner(trace.At(state.Time));
+            sim.SetBurner(pilot.Burner(state));
             sim.Step();
             state = sim.State;
 
             if (step % sampleEvery == 0) Record(log, state);
 
-            if (dropWhen is not null && dropWhen(state)) break;
+            if (useDropWhen ? dropWhen(state) : pilot.Drop(state)) break;
         }
 
         // Always record the final instant, even if it fell between samples.
@@ -68,5 +94,6 @@ public static class RoastRunner
     }
 
     private static void Record(RoastLog log, in RoastState s) => log.Add(new RoastSample(
-        s.Time, s.Burner, s.EnvTemp, s.BeanTemp, s.BeanProbe, s.RateOfRise, s.Moisture, s.Phase));
+        s.Time, s.Burner, s.EnvTemp, s.BeanTemp, s.BeanProbe, s.RateOfRise,
+        s.SurfaceMoisture, s.CoreMoisture, s.ExothermWatts, s.Phase));
 }

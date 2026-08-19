@@ -24,6 +24,17 @@ public sealed record RoastCharge
     /// </summary>
     public double DensityFactor { get; init; } = 1.0;
 
+    /// <summary>
+    /// Share of the water that starts locked in the bean core rather than near
+    /// the surface.
+    /// </summary>
+    /// <remarks>
+    /// Whatever is still in the core at first crack vents in a rush and crashes
+    /// the rate of rise. Denser, high-grown beans hold their core water more
+    /// stubbornly, which is why they punish a hurried drying phase harder.
+    /// </remarks>
+    public double CoreMoistureFraction { get; init; } = 0.5;
+
     /// <summary>A 1kg lot of nominal density and moisture.</summary>
     public static RoastCharge Default { get; } = new();
 

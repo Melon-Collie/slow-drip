@@ -4,7 +4,8 @@ using Xunit;
 namespace SlowDrip.Sim.Tests;
 
 /// <summary>
-/// The claims design.md #9.4 makes about the roaster, stated as tests.
+/// The claims design.md #9.4 makes about the roaster, plus the ones published
+/// roasting guidance makes about roasting, stated as tests.
 /// </summary>
 /// <remarks>
 /// These assert shapes, not tuning. A threshold here should be loose enough that
@@ -14,24 +15,32 @@ namespace SlowDrip.Sim.Tests;
 /// </remarks>
 public class RoasterSimTests
 {
-    private static RoastLog Run(DialTrace trace, RoastCharge? charge = null, double maxSeconds = 900) =>
-        RoastRunner.Run(trace, charge: charge, maxSeconds: maxSeconds,
-            dropWhen: RoastRunner.DropAtDevelopmentRatio(0.20), sampleInterval: 1.0);
+    private const double MaxSeconds = 1200.0;
+
+    private static RoastLog Run(IRoastPilot pilot, RoastCharge? charge = null) =>
+        RoastRunner.Run(pilot, charge: charge, maxSeconds: MaxSeconds, sampleInterval: 1.0);
+
+    private static RoastLog Run(DialTrace trace, RoastCharge? charge = null) =>
+        RoastRunner.Run(trace, charge: charge, maxSeconds: MaxSeconds,
+            dropWhen: RoastRunner.DropAtTemp(213.0), sampleInterval: 1.0);
+
+    private static double TroughAfterCrack(RoastLog log) =>
+        log.Samples.Where(s => s.Time > log.FirstCrackTime).Min(s => s.RateOfRise);
 
     // ---- Determinism -------------------------------------------------------
 
     [Fact]
-    public void Same_trace_produces_a_bit_identical_roast()
+    public void Same_roast_runs_bit_identically_twice()
     {
-        var a = Run(ReferenceRoasts.Healthy);
-        var b = Run(ReferenceRoasts.Healthy);
+        var a = Run(ReferenceRoasts.Textbook());
+        var b = Run(ReferenceRoasts.Textbook());
 
         Assert.Equal(a.Samples.Count, b.Samples.Count);
         for (var i = 0; i < a.Samples.Count; i++)
         {
             Assert.Equal(a.Samples[i].BeanTemp, b.Samples[i].BeanTemp);
-            Assert.Equal(a.Samples[i].BeanProbe, b.Samples[i].BeanProbe);
             Assert.Equal(a.Samples[i].RateOfRise, b.Samples[i].RateOfRise);
+            Assert.Equal(a.Samples[i].CoreMoisture, b.Samples[i].CoreMoisture);
         }
 
         Assert.Equal(a.FirstCrackTime, b.FirstCrackTime);
@@ -65,7 +74,7 @@ public class RoasterSimTests
         var rorRespondsAt = pairs.First(p => p.Second.RateOfRise - p.First.RateOfRise >= 1.0).Second.Time - StepAt;
 
         Assert.True(envRespondsAt <= 5.0, $"Drum should answer the dial at once, took {envRespondsAt:F1}s");
-        Assert.InRange(rorRespondsAt, 10.0, 40.0);
+        Assert.InRange(rorRespondsAt, 10.0, 45.0);
     }
 
     [Fact]
@@ -73,8 +82,7 @@ public class RoasterSimTests
     {
         // The probe was sitting in a preheated drum, so it starts hot while the
         // beans are at room temperature. The player is reading an instrument.
-        var sim = new RoasterSim();
-        var s = sim.State;
+        var s = new RoasterSim().State;
 
         Assert.Equal(RoasterConfig.Default.ChargeTemp, s.BeanProbe, 6);
         Assert.Equal(RoasterConfig.Default.AmbientTemp, s.BeanTemp, 6);
@@ -84,13 +92,14 @@ public class RoasterSimTests
     public void Probe_falls_then_turns_around()
     {
         // The turning point. It is a sensor artefact, and it falls out of the
-        // model rather than being authored.
-        var log = Run(ReferenceRoasts.Healthy);
+        // model rather than being authored. Published guidance puts it around a
+        // minute in, at 80-95C.
+        var log = Run(ReferenceRoasts.Textbook());
         var tp = log.TurningPoint;
 
         Assert.NotNull(tp);
         Assert.InRange(tp!.Value.Time, 20.0, 120.0);
-        Assert.InRange(tp.Value.BeanProbe, 70.0, 115.0);
+        Assert.InRange(tp.Value.BeanProbe, 70.0, 110.0);
 
         // True bean temperature never dips — only the reading does.
         var early = log.Samples.Where(s => s.Time <= 180).ToArray();
@@ -101,14 +110,32 @@ public class RoasterSimTests
         }
     }
 
-    // ---- The three curve shapes --------------------------------------------
+    // ---- The reference roast against published targets ----------------------
 
     [Fact]
-    public void Healthy_roast_glides_its_rate_of_rise_steadily_downward()
+    public void Textbook_roast_matches_the_published_shape()
     {
-        var log = Run(ReferenceRoasts.Healthy);
+        // Roasting guidance puts a well-run drum roast at roughly 10 C/min through
+        // the middle and 5 C/min by first crack, cracking around nine minutes and
+        // dropping a couple of minutes later.
+        var log = Run(ReferenceRoasts.Textbook());
         Assert.True(log.ReachedFirstCrack);
 
+        var mid = log.Samples.First(s => s.Time >= 300).RateOfRise;
+        var atCrack = log.Samples.First(s => s.Time >= log.FirstCrackTime).RateOfRise;
+
+        Assert.InRange(mid, 7.0, 16.0);
+        Assert.InRange(atCrack, 3.0, 10.0);
+        Assert.True(atCrack < mid, "Rate of rise should still be falling at first crack");
+        Assert.InRange(log.FirstCrackTime, 420.0, 660.0);
+        Assert.InRange(log.DropTime, 520.0, 780.0);
+        Assert.InRange(log.DevelopmentTimeRatio, 0.15, 0.25);
+    }
+
+    [Fact]
+    public void Textbook_roast_glides_its_rate_of_rise_downward()
+    {
+        var log = Run(ReferenceRoasts.Textbook());
         var tp = log.TurningPoint!.Value;
         var peakAt = log.Samples.Where(s => s.Time > tp.Time).OrderByDescending(s => s.RateOfRise).First().Time;
         var glide = log.Samples.Where(s => s.Time > peakAt && s.Time < log.FirstCrackTime).ToArray();
@@ -119,113 +146,164 @@ public class RoasterSimTests
             Assert.True(rise <= 0.5, $"RoR climbed {rise:F2} C/min at t={glide[i].Time}s — not a glide");
         }
 
-        Assert.True(glide[^1].RateOfRise < glide[0].RateOfRise / 2.0,
-            "RoR should be well down by first crack");
-        Assert.InRange(log.DevelopmentTimeRatio, 0.18, 0.22);
+        Assert.True(TroughAfterCrack(log) > 0.0, "A well-run roast should not stall after first crack");
+    }
+
+    // ---- The crash: a thing that happens, not a thing you do ----------------
+
+    [Fact]
+    public void Beans_vent_their_core_moisture_at_first_crack()
+    {
+        // Published explanation of the crash: around the beginning of first crack
+        // the beans release a great deal of moisture from their cores in a short
+        // period. That is modelled here as the core pool emptying into the surface
+        // pool once the bean structure has ruptured.
+        var log = Run(ReferenceRoasts.Textbook());
+        var atCrack = log.Samples.First(s => s.Time >= log.FirstCrackTime);
+        var later = log.Samples.First(s => s.Time >= log.FirstCrackTime + 60);
+
+        Assert.True(atCrack.CoreMoisture > 0.004, "There should be core water left to vent");
+        Assert.True(later.CoreMoisture < atCrack.CoreMoisture * 0.4,
+            $"Core should vent at first crack: {atCrack.CoreMoisture:F4} -> {later.CoreMoisture:F4}");
     }
 
     [Fact]
-    public void Baked_roast_flatlines_through_drying_and_cracks_late()
+    public void The_vent_is_what_crashes_the_rate_of_rise()
     {
-        // Pull the heat too early and the drying phase stops progressing: energy
-        // goes into evaporating water instead of raising temperature.
-        var baked = Run(ReferenceRoasts.Baked);
-        var healthy = Run(ReferenceRoasts.Healthy);
+        // Isolate the mechanism: same dial, same everything, with the rupture
+        // release turned off. The crash should go with it.
+        var withVent = RoasterConfig.Default;
+        var withoutVent = RoasterConfig.Default with { FirstCrackMoistureRelease = 1.0 };
 
-        static double MinRorDuringDrying(RoastLog log) =>
-            log.Samples.Where(s => s.Time is > 150 and < 380).Min(s => s.RateOfRise);
+        var a = RoastRunner.Run(ReferenceRoasts.HandPlayed, withVent, maxSeconds: MaxSeconds,
+            dropWhen: RoastRunner.DropAtTemp(213.0), sampleInterval: 1.0);
+        var b = RoastRunner.Run(ReferenceRoasts.HandPlayed, withoutVent, maxSeconds: MaxSeconds,
+            dropWhen: RoastRunner.DropAtTemp(213.0), sampleInterval: 1.0);
 
-        Assert.True(MinRorDuringDrying(baked) < 3.0,
-            $"Baked roast should flatline, floor was {MinRorDuringDrying(baked):F1} C/min");
-        Assert.True(MinRorDuringDrying(healthy) > 4.0,
-            $"Healthy roast should keep climbing, floor was {MinRorDuringDrying(healthy):F1} C/min");
+        Assert.True(a.ReachedFirstCrack && b.ReachedFirstCrack);
+        Assert.True(TroughAfterCrack(a) < TroughAfterCrack(b) - 1.0,
+            $"Venting should deepen the post-crack dip: {TroughAfterCrack(a):F1} vs {TroughAfterCrack(b):F1} C/min");
+    }
 
-        Assert.True(baked.FirstCrackTime > healthy.FirstCrackTime + 120,
-            $"Baked crack at {baked.FirstCrackTime:F0}s vs healthy {healthy.FirstCrackTime:F0}s");
+    // ---- The taught protocol -----------------------------------------------
+
+    [Fact]
+    public void Making_the_pre_crack_cut_too_early_stalls_the_roast()
+    {
+        // "Not so low that the roast loses momentum and the bean temperature stops
+        // increasing before the end of the roast."
+        var early = Run(ReferenceRoasts.CutTooEarly());
+
+        Assert.True(early.ReachedFirstCrack);
+        Assert.True(TroughAfterCrack(early) < 0.0,
+            $"Cutting 90s out should stall the roast, trough was {TroughAfterCrack(early):F1} C/min");
+        Assert.True(early.DropTemp < 213.0,
+            "A stalled roast should never reach drop temperature");
     }
 
     [Fact]
-    public void Cutting_the_gas_crashes_the_rate_of_rise_and_the_exotherm_flicks_it_back()
+    public void Making_the_pre_crack_cut_too_late_underdevelops_the_roast()
     {
-        // The teeth of the momentum problem. Correcting a runaway does not end it;
-        // the beans are generating their own heat by then.
-        const double CutAt = 330.0;
-        var log = Run(ReferenceRoasts.CrashAndFlick);
-        Assert.True(log.ReachedFirstCrack);
+        // Leave the reduction until the crack is on top of you and the roast
+        // arrives at drop temperature before development has happened.
+        var late = Run(ReferenceRoasts.CutTooLate());
+        var textbook = Run(ReferenceRoasts.Textbook());
 
-        var before = log.Samples.Last(s => s.Time <= CutAt).RateOfRise;
-        var post = log.Samples.Where(s => s.Time > CutAt).ToArray();
-        var trough = post.Min(s => s.RateOfRise);
-        var troughAt = post.First(s => s.RateOfRise <= trough + 1e-9).Time;
-        var recovery = post.Where(s => s.Time > troughAt).Max(s => s.RateOfRise);
-
-        Assert.True(trough < before * 0.75,
-            $"Expected a crash: RoR went {before:F1} -> {trough:F1} C/min");
-        Assert.True(recovery - trough > 4.0,
-            $"Expected a flick: RoR recovered only {recovery - trough:F1} C/min from {trough:F1}");
-    }
-
-    // ---- Charge properties -------------------------------------------------
-
-    [Fact]
-    public void A_profile_dialled_in_on_one_lot_misses_on_another()
-    {
-        // design.md #9.4: "saved profiles don't transfer cleanly between lots."
-        // No special case implements this — the dense lot simply has more thermal
-        // mass and a lower conductance, so the same dial trace lands elsewhere.
-        var nominal = Run(ReferenceRoasts.Healthy);
-        var dense = Run(ReferenceRoasts.Healthy, ReferenceRoasts.DenseLot);
-
-        Assert.True(nominal.ReachedFirstCrack);
-        Assert.False(dense.ReachedFirstCrack,
-            "The denser, wetter lot should stall short of first crack on last season's profile");
-        Assert.True(dense.Samples[^1].BeanProbe < nominal.DropTemp - 30);
+        Assert.True(late.ReachedFirstCrack);
+        Assert.True(late.DevelopmentTimeRatio < textbook.DevelopmentTimeRatio - 0.04,
+            $"Late cut should shorten development: {late.DevelopmentTimeRatio:P0} vs {textbook.DevelopmentTimeRatio:P0}");
     }
 
     [Fact]
-    public void A_heavier_charge_roasts_more_slowly_on_the_same_trace()
+    public void The_taught_lead_time_sits_between_the_two_failures()
     {
-        var light = Run(ReferenceRoasts.Healthy, new RoastCharge { DryMassKg = 0.7 });
-        var heavy = Run(ReferenceRoasts.Healthy, new RoastCharge { DryMassKg = 1.3 });
+        // The published number is 45 seconds. The model should agree that it is
+        // between stalling and bolting rather than at either end.
+        var textbook = Run(ReferenceRoasts.Textbook());
 
-        Assert.True(light.ReachedFirstCrack);
-        Assert.True(!heavy.ReachedFirstCrack || heavy.FirstCrackTime > light.FirstCrackTime,
-            "More mass in the drum must take longer to reach first crack");
+        Assert.True(TroughAfterCrack(textbook) > 0.0, "45s lead should not stall");
+        Assert.InRange(textbook.DevelopmentTimeRatio, 0.15, 0.25);
+        Assert.InRange(textbook.DropTemp, 210.0, 216.0);
     }
 
-    // ---- Moisture and first crack ------------------------------------------
+    // ---- The exotherm ------------------------------------------------------
 
     [Fact]
-    public void Moisture_only_ever_leaves_and_never_goes_negative()
+    public void Self_heating_consumes_its_own_fuel()
     {
-        var log = Run(ReferenceRoasts.Scorch);
+        // Arrhenius kinetics on a finite reactant. Without depletion the roast
+        // would generate heat for ever; with it, the flick is a bump and not an
+        // escape.
+        var sim = new RoasterSim();
+        sim.SetBurner(1.0);
+        var seenPositive = false;
+
+        for (var i = 0; i < 60 * 60 * 12; i++)
+        {
+            sim.Step();
+            if (sim.State.ExothermWatts > 100) seenPositive = true;
+        }
+
+        var end = sim.State;
+        Assert.True(seenPositive, "The exotherm should have run at some point");
+        Assert.InRange(end.ReactantRemaining, 0.0, 1.0);
+        Assert.True(end.ReactantRemaining < 0.5,
+            $"A long hot roast should burn through its reactant, {end.ReactantRemaining:F2} left");
+    }
+
+    [Fact]
+    public void A_normal_roast_leaves_most_of_the_reactant_unburnt()
+    {
+        // Calorimetry measures 250-420 kJ/kg up to 300C, well past any drop
+        // temperature. Only a fraction of that budget should be spent by drop.
+        var sim = new RoasterSim();
+        var pilot = ReferenceRoasts.Textbook();
+        var state = sim.State;
+
+        while (state.Time < MaxSeconds && !pilot.Drop(state))
+        {
+            sim.SetBurner(pilot.Burner(state));
+            sim.Step();
+            state = sim.State;
+        }
+
+        Assert.InRange(state.ReactantRemaining, 0.5, 0.95);
+    }
+
+    // ---- Moisture ----------------------------------------------------------
+
+    [Fact]
+    public void Water_only_ever_leaves_and_never_goes_negative()
+    {
+        var log = Run(ReferenceRoasts.Textbook());
 
         for (var i = 1; i < log.Samples.Count; i++)
         {
             Assert.True(log.Samples[i].Moisture <= log.Samples[i - 1].Moisture + 1e-12,
-                $"Moisture rose at t={log.Samples[i].Time}s");
-            Assert.True(log.Samples[i].Moisture >= 0.0, $"Moisture went negative at t={log.Samples[i].Time}s");
+                $"Total moisture rose at t={log.Samples[i].Time}s");
+            Assert.True(log.Samples[i].SurfaceMoisture >= 0.0);
+            Assert.True(log.Samples[i].CoreMoisture >= 0.0);
         }
 
-        Assert.True(log.Samples[^1].Moisture < RoastCharge.Default.Moisture / 4.0,
+        Assert.True(log.Samples[^1].Moisture < RoastCharge.Default.Moisture / 3.0,
             "A roast to first crack should have driven most of the water off");
     }
 
     [Fact]
-    public void Beans_cannot_crack_while_still_wet()
+    public void A_wetter_lot_cracks_later()
     {
-        var log = Run(ReferenceRoasts.Healthy);
-        Assert.True(log.ReachedFirstCrack);
+        var normal = Run(ReferenceRoasts.Textbook());
+        var wet = Run(ReferenceRoasts.Textbook(), new RoastCharge { Moisture = 0.155 });
 
-        var atCrack = log.Samples.First(s => s.Time >= log.FirstCrackTime);
-        Assert.True(atCrack.Moisture <= RoasterConfig.Default.FirstCrackMaxMoisture + 1e-6,
-            $"Cracked at {atCrack.Moisture:F4} moisture");
+        Assert.True(normal.ReachedFirstCrack && wet.ReachedFirstCrack);
+        Assert.True(wet.FirstCrackTime > normal.FirstCrackTime,
+            $"Wet lot cracked at {wet.FirstCrackTime:F0}s, normal at {normal.FirstCrackTime:F0}s");
     }
 
     [Fact]
     public void Phases_run_in_order_and_never_go_backwards()
     {
-        var log = Run(ReferenceRoasts.Healthy);
+        var log = Run(ReferenceRoasts.Textbook());
         var seen = log.Samples.Select(s => (int)s.Phase).ToArray();
 
         for (var i = 1; i < seen.Length; i++)
@@ -234,7 +312,58 @@ public class RoasterSimTests
                 $"Phase went backwards at t={log.Samples[i].Time}s: {(RoastPhase)seen[i - 1]} -> {(RoastPhase)seen[i]}");
         }
 
+        Assert.Contains(log.Samples, s => s.Phase == RoastPhase.Drying);
+        Assert.Contains(log.Samples, s => s.Phase == RoastPhase.Maillard);
         Assert.Equal(RoastPhase.Development, log.Samples[^1].Phase);
+    }
+
+    // ---- Baked -------------------------------------------------------------
+
+    [Fact]
+    public void Pulling_heat_early_flatlines_drying_and_costs_the_rest_of_the_roast()
+    {
+        var baked = Run(ReferenceRoasts.Baked());
+        var textbook = Run(ReferenceRoasts.Textbook());
+
+        static double DryingFloor(RoastLog log) =>
+            log.Samples.Where(s => s.Phase == RoastPhase.Drying && s.Time > 120).Min(s => s.RateOfRise);
+
+        Assert.True(DryingFloor(baked) < 3.0,
+            $"Baked roast should flatline in drying, floor was {DryingFloor(baked):F1} C/min");
+        Assert.True(DryingFloor(textbook) > 4.0,
+            $"Textbook roast should keep climbing, floor was {DryingFloor(textbook):F1} C/min");
+        Assert.True(baked.FirstCrackTime > textbook.FirstCrackTime + 180,
+            $"Baked cracked at {baked.FirstCrackTime:F0}s vs {textbook.FirstCrackTime:F0}s");
+    }
+
+    // ---- Profiles do not transfer ------------------------------------------
+
+    [Fact]
+    public void A_recorded_profile_misses_on_a_new_lot_but_a_pilot_adapts()
+    {
+        // design.md #9.4: "Automation handles daily volume; anything new or
+        // precious pulls you back to the dial." A fixed trace cuts the gas at a
+        // fixed second whether or not the roast has got there; a controller that
+        // watches the curve does not.
+        var recorded = Run(ReferenceRoasts.HandPlayed, ReferenceRoasts.DenseLot);
+        var piloted = Run(ReferenceRoasts.Textbook(), ReferenceRoasts.DenseLot);
+        var recordedOnItsOwnLot = Run(ReferenceRoasts.HandPlayed);
+
+        Assert.True(recordedOnItsOwnLot.ReachedFirstCrack, "The trace should work on the lot it was made for");
+        Assert.False(recorded.ReachedFirstCrack, "The same trace should miss on the denser, wetter lot");
+        Assert.True(piloted.ReachedFirstCrack, "The controller should adapt to it");
+        Assert.InRange(piloted.DropTemp, 210.0, 216.0);
+    }
+
+    [Fact]
+    public void A_heavier_charge_roasts_more_slowly()
+    {
+        var light = Run(ReferenceRoasts.Textbook(), new RoastCharge { DryMassKg = 0.7 });
+        var heavy = Run(ReferenceRoasts.Textbook(), new RoastCharge { DryMassKg = 1.3 });
+
+        Assert.True(light.ReachedFirstCrack);
+        Assert.True(!heavy.ReachedFirstCrack || heavy.FirstCrackTime > light.FirstCrackTime,
+            "More mass in the drum must take longer to reach first crack");
     }
 
     // ---- Housekeeping ------------------------------------------------------
@@ -259,9 +388,23 @@ public class RoasterSimTests
     }
 
     [Fact]
+    public void Predicted_time_to_crack_falls_as_the_crack_approaches()
+    {
+        var log = Run(ReferenceRoasts.Textbook());
+        var early = log.Samples.First(s => s.Time >= 300);
+        var late = log.Samples.First(s => s.Time >= log.FirstCrackTime - 60);
+
+        static double Predict(RoastSample s) => DoctrinePilot.PredictedSecondsToCrack(
+            new RoastState { BeanProbe = s.BeanProbe, RateOfRise = s.RateOfRise }, 196.0);
+
+        Assert.True(Predict(late) < Predict(early),
+            $"Prediction should tighten: {Predict(early):F0}s at 300s, {Predict(late):F0}s near the crack");
+    }
+
+    [Fact]
     public void Csv_export_has_a_row_per_sample()
     {
-        var log = Run(ReferenceRoasts.Healthy);
+        var log = Run(ReferenceRoasts.Textbook());
         var lines = log.ToCsv().TrimEnd('\n').Split('\n');
 
         Assert.Equal(log.Samples.Count + 1, lines.Length);

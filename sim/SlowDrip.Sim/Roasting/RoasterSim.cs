@@ -1,9 +1,9 @@
 namespace SlowDrip.Sim.Roasting;
 
 /// <summary>
-/// The drum roaster: two coupled thermal bodies, an evaporation sink, an
-/// exothermic source, and a lagged probe. Deterministic, fixed timestep, and
-/// free of any engine type (design.md #15).
+/// The drum roaster: two coupled thermal bodies, moisture in two pools, a
+/// depleting exothermic source, and a lagged probe. Deterministic, fixed
+/// timestep, and free of any engine type (design.md #15).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -13,15 +13,19 @@ namespace SlowDrip.Sim.Roasting;
 /// immediately, which reads as sluggish rather than as momentum.
 /// </para>
 /// <para>
-/// The three terms that carry the design:
+/// The terms that carry the design:
 /// <list type="bullet">
-/// <item>Evaporation is the drying phase. While free moisture remains, burner
+/// <item><b>Surface moisture</b> is the drying phase. While it remains, burner
 /// energy goes into phase change instead of temperature, so a flat RoR through
 /// drying is a physical outcome and not a scripted failure.</item>
-/// <item>The exotherm is the teeth. Cut the burner to stop a runaway and RoR
-/// crashes, then self-heating flicks it back up.</item>
-/// <item>Thermal mass comes from the charge, so a profile that suited one lot
-/// misses on the next.</item>
+/// <item><b>Core moisture</b> is the debt. It migrates out slowly, and whatever
+/// is left when the bean ruptures vents in a rush and crashes the RoR. Rush the
+/// drying phase and you pay for it at first crack, minutes later.</item>
+/// <item><b>The exotherm</b> is the teeth, and it depletes. Cut the gas to catch
+/// a runaway and the RoR crashes, then self-heating flicks it back up — but the
+/// reactant is finite, so the flick is a bump and not an escape.</item>
+/// <item><b>Thermal mass</b> comes from the charge, so a profile that suited one
+/// lot misses on the next.</item>
 /// </list>
 /// </para>
 /// </remarks>
@@ -29,6 +33,9 @@ public sealed class RoasterSim
 {
     /// <summary>The one true timestep. Determinism depends on every step being this long.</summary>
     public const double FixedDt = 1.0 / 60.0;
+
+    private const double KelvinOffset = 273.15;
+    private const double ReferenceTempKelvin = 200.0 + KelvinOffset;
 
     private readonly RoasterConfig _cfg;
     private readonly RoastCharge _charge;
@@ -39,7 +46,10 @@ public sealed class RoasterSim
     private double _envTemp;
     private double _beanTemp;
     private double _beanProbe;
-    private double _moisture;
+    private double _surfaceMoisture;
+    private double _coreMoisture;
+    private double _reactantRemaining = 1.0;
+    private double _exothermWatts;
     private bool _firstCrack;
     private double _firstCrackTime = -1.0;
     private bool _pastTurningPoint;
@@ -52,7 +62,8 @@ public sealed class RoasterSim
 
         _envTemp = _cfg.ChargeTemp;
         _beanTemp = _cfg.AmbientTemp;
-        _moisture = _charge.Moisture;
+        _coreMoisture = _charge.Moisture * _charge.CoreMoistureFraction;
+        _surfaceMoisture = _charge.Moisture - _coreMoisture;
 
         // The probe was sitting in a preheated empty drum, so it starts hot and
         // falls as the beans reach it. That artefact is the turning point.
@@ -72,7 +83,10 @@ public sealed class RoasterSim
         BeanTemp = _beanTemp,
         BeanProbe = _beanProbe,
         RateOfRise = _ror.Value,
-        Moisture = _moisture,
+        SurfaceMoisture = _surfaceMoisture,
+        CoreMoisture = _coreMoisture,
+        ReactantRemaining = _reactantRemaining,
+        ExothermWatts = _exothermWatts,
         FirstCrack = _firstCrack,
         FirstCrackTime = _firstCrackTime,
         Phase = CurrentPhase(),
@@ -83,9 +97,10 @@ public sealed class RoasterSim
     {
         var dt = FixedDt;
         var dryMass = _charge.DryMassKg;
+        var moisture = _surfaceMoisture + _coreMoisture;
 
         // Bean thermal mass, water included. Wetter beans are heavier to move.
-        var beanCapacity = dryMass * (_cfg.BeanSpecificHeat + _moisture * _cfg.WaterSpecificHeat);
+        var beanCapacity = dryMass * (_cfg.BeanSpecificHeat + moisture * _cfg.WaterSpecificHeat);
 
         // Denser beans take heat more slowly for the same mass.
         var beanConductance = _cfg.BeanConductance * dryMass / _charge.DensityFactor;
@@ -94,26 +109,48 @@ public sealed class RoasterSim
         var qEnvToBean = beanConductance * (_envTemp - _beanTemp);
         var qEnvLoss = _cfg.EnvLossConductance * (_envTemp - _cfg.AmbientTemp);
 
-        // Evaporation. Rate scales with how much water is left and how far the
-        // beans are past the drying onset, so drying tapers instead of stopping.
+        var drive = Math.Max(0.0, _beanTemp - _cfg.DryingOnset);
+
+        // Core moisture works its way out to the surface. Once the bean has
+        // ruptured it stops being a slow migration and becomes a vent.
+        var migrated = 0.0;
+        if (_coreMoisture > 0.0)
+        {
+            var rate = _cfg.CoreMigrationCoefficient * _coreMoisture * drive;
+            if (_firstCrack) rate *= _cfg.FirstCrackMoistureRelease;
+            migrated = Math.Min(_coreMoisture, rate * dt);
+            _coreMoisture -= migrated;
+            _surfaceMoisture += migrated;
+        }
+
+        // Only surface moisture evaporates, and only evaporation costs latent heat.
         var qEvaporation = 0.0;
         var evaporated = 0.0;
-        if (_moisture > 0.0)
+        if (_surfaceMoisture > 0.0)
         {
-            var drive = Math.Max(0.0, _beanTemp - _cfg.DryingOnset);
-            var rate = _cfg.DryingCoefficient * _moisture * drive; // per second, dry basis
-            evaporated = Math.Min(_moisture, rate * dt);
+            var rate = _cfg.DryingCoefficient * _surfaceMoisture * drive; // per second, dry basis
+            evaporated = Math.Min(_surfaceMoisture, rate * dt);
             qEvaporation = evaporated / dt * dryMass * _cfg.LatentHeatOfVaporisation;
         }
 
-        var qExotherm = Exotherm(_beanTemp, dryMass);
+        // Self-heating, with the reactant it consumes tracked so the roast cannot
+        // generate heat for ever.
+        var reacted = 0.0;
+        _exothermWatts = 0.0;
+        if (_reactantRemaining > 0.0)
+        {
+            var k = ExothermRateConstant(_beanTemp);
+            reacted = Math.Min(_reactantRemaining, k * _reactantRemaining * dt);
+            _exothermWatts = reacted / dt * _cfg.ExothermEnergy * dryMass;
+            _reactantRemaining -= reacted;
+        }
 
         var dEnv = (qBurner - qEnvToBean - qEnvLoss) / _cfg.EnvHeatCapacity;
-        var dBean = (qEnvToBean + qExotherm - qEvaporation) / beanCapacity;
+        var dBean = (qEnvToBean + _exothermWatts - qEvaporation) / beanCapacity;
 
         _envTemp += dEnv * dt;
         _beanTemp += dBean * dt;
-        _moisture -= evaporated;
+        _surfaceMoisture -= evaporated;
 
         // Sensor lag, against a reading that is mostly bean and partly drum.
         // Semi-implicit so the probe cannot overshoot at large dt.
@@ -125,7 +162,9 @@ public sealed class RoasterSim
         // probe back above true bean temperature, which is not a second charge.
         if (!_pastTurningPoint && _beanProbe > previousProbe) _pastTurningPoint = true;
 
-        if (!_firstCrack && _beanTemp >= _cfg.FirstCrackTemp && _moisture <= _cfg.FirstCrackMaxMoisture)
+        if (!_firstCrack
+            && _beanTemp >= _cfg.FirstCrackTemp
+            && _surfaceMoisture + _coreMoisture <= _cfg.FirstCrackMaxMoisture)
         {
             _firstCrack = true;
             _firstCrackTime = _time;
@@ -142,18 +181,24 @@ public sealed class RoasterSim
         for (var i = 0; i < steps; i++) Step();
     }
 
-    private double Exotherm(double beanTemp, double dryMass)
+    /// <summary>
+    /// Arrhenius rate constant for the roast reactions, referenced at 200 degC.
+    /// </summary>
+    private double ExothermRateConstant(double beanTempC)
     {
-        var x = (beanTemp - _cfg.ExothermOnset) / _cfg.ExothermWidth;
-        // Guard the exponential so a cold start cannot overflow.
-        if (x < -40.0) return 0.0;
-        return _cfg.ExothermPower * dryMass / (1.0 + Math.Exp(-x));
+        var t = beanTempC + KelvinOffset;
+        if (t < 1.0) return 0.0;
+
+        var exponent = -_cfg.ExothermActivationEnergy / _cfg.GasConstant * (1.0 / t - 1.0 / ReferenceTempKelvin);
+        if (exponent < -40.0) return 0.0;
+        if (exponent > 40.0) exponent = 40.0;
+        return _cfg.ExothermRateAt200C * Math.Exp(exponent);
     }
 
     private RoastPhase CurrentPhase()
     {
         if (_firstCrack) return RoastPhase.Development;
         if (!_pastTurningPoint) return RoastPhase.Charge;
-        return _moisture > _cfg.FirstCrackMaxMoisture ? RoastPhase.Drying : RoastPhase.Maillard;
+        return _beanTemp < _cfg.DryingEndTemp ? RoastPhase.Drying : RoastPhase.Maillard;
     }
 }

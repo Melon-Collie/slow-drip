@@ -27,8 +27,23 @@ public readonly record struct RoastState
     /// <summary>Smoothed rate of rise of the probe (degC per minute).</summary>
     public double RateOfRise { get; init; }
 
-    /// <summary>Remaining water, dry basis (kg water per kg dry solids).</summary>
-    public double Moisture { get; init; }
+    /// <summary>Water near the bean surface, free to evaporate (dry basis).</summary>
+    public double SurfaceMoisture { get; init; }
+
+    /// <summary>
+    /// Water still locked in the bean core (dry basis). Whatever remains here at
+    /// first crack is what crashes the rate of rise.
+    /// </summary>
+    public double CoreMoisture { get; init; }
+
+    /// <summary>Total remaining water, dry basis (kg water per kg dry solids).</summary>
+    public double Moisture => SurfaceMoisture + CoreMoisture;
+
+    /// <summary>Unreacted share of the roast reactions, 1 at charge and falling.</summary>
+    public double ReactantRemaining { get; init; }
+
+    /// <summary>Current self-heating output of the bean mass (W).</summary>
+    public double ExothermWatts { get; init; }
 
     /// <summary>True once first crack has begun.</summary>
     public bool FirstCrack { get; init; }

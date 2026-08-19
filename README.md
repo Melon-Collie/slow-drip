@@ -26,6 +26,7 @@ First prototype is the roaster, built in milestones:
 | | | |
 |---|---|---|
 | **M1** | Headless thermal model, deterministic and engine-free | **done** |
+| M1.5 | Model checked against roasting research; two-pool moisture, depleting exotherm | **done** |
 | M2 | Dial and curves in Godot. Does steering this feel good? | next |
 | M3 | First crack as audio, not UI | |
 | M4 | Development time ratio, then scoring against the quality vector | |
@@ -42,4 +43,4 @@ dotnet run --project sim/tools/RoastLab
 
 - [Design document](docs/design.md) — v0.6 (concept)
 - [Sprite layer system](docs/sprite-layers.md) — tree state decomposition, palette ramps
-- [Simulation core](sim/README.md) — the roaster model, its reference roasts, and what is tuned for feel
+- [Simulation core](sim/README.md) — the roaster model, what it borrows from roasting research, and where it disagrees

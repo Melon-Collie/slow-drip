@@ -37,11 +37,7 @@ if (wantCsv)
 Summarise(chosen);
 return 0;
 
-static RoastLog RunOf(Scenario s) => RoastRunner.Run(
-    s.Trace,
-    charge: s.Charge,
-    maxSeconds: 900.0,
-    dropWhen: RoastRunner.DropAtDevelopmentRatio(0.20));
+static RoastLog RunOf(Scenario s) => s.Run();
 
 static void Summarise(Scenario s)
 {
@@ -57,6 +53,7 @@ static void Summarise(Scenario s)
         ? $"   first crack     {Clock(log.FirstCrackTime)}"
         : "   first crack     never reached");
     Console.WriteLine($"   drop            {Clock(log.DropTime)} at {log.DropTemp:F1}C");
+    Console.WriteLine($"   drying floor    {DryingFloor(log):F1} C/min");
     Console.WriteLine(log.DevelopmentTimeRatio >= 0.0
         ? $"   dev time ratio  {log.DevelopmentTimeRatio:P1}"
         : "   dev time ratio  n/a");
@@ -84,6 +81,14 @@ static string RorSparkline(RoastLog log)
     }
 
     return new string(chars);
+}
+
+// The lowest rate of rise seen through the drying phase. A floor near zero is
+// the signature of a baked roast.
+static double DryingFloor(RoastLog log)
+{
+    var drying = log.Samples.Where(s => s.Phase == RoastPhase.Drying && s.Time > 120).ToArray();
+    return drying.Length == 0 ? double.NaN : drying.Min(s => s.RateOfRise);
 }
 
 static string Clock(double seconds) =>
