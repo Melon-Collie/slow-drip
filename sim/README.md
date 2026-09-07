@@ -21,7 +21,7 @@ none of it.
 ## Running it
 
 ```sh
-dotnet test sim/SlowDrip.sln                           # 50 tests, about a second
+dotnet test sim/SlowDrip.sln                           # 52 tests, about a second
 dotnet run --project sim/tools/RoastLab                # every reference roast
 dotnet run --project sim/tools/RoastLab textbook       # one of them
 dotnet run --project sim/tools/RoastLab textbook --csv # the curve, for plotting
@@ -38,7 +38,7 @@ and a lagged sensor.
 
 ```
 dET/dt = (burner*power  -  h_bean*(ET - BT)  -  h_loss*(ET - ambient)) / C_env
-dBT/dt = (h_bean*(ET - BT)  +  exotherm(BT)  -  evaporation(BT, surface)) / C_bean
+dBT/dt = (h_bean*(ET - BT)  +  exotherm(BT)  -  evaporation(surface) - flash(venting)) / C_bean
 probe += (0.9*BT + 0.1*ET - probe) * dt/(tau + dt)
 ```
 
@@ -53,10 +53,14 @@ Four terms carry the design:
   into phase change instead of temperature, so a flat rate of rise through drying
   is a physical outcome rather than a scripted failure.
 - **Core moisture** is the debt. It migrates outward slowly, and whatever is left
-  when the bean ruptures vents in a rush. That vent is the RoR crash, and it is
-  the mechanism roasting literature actually gives for it: at first crack the
-  beans release a great deal of moisture from their cores in a short period, and
-  that moisture is cooler than the bean surface and the probe.
+  when the bean ruptures leaves the core all at once. Part of it flashes to steam
+  and pays its latent heat *then*, which is the RoR crash; the rest becomes free
+  water on a broken bean. This is the mechanism roasting literature gives for the
+  crash: at first crack the beans release a great deal of moisture from their
+  cores in a short period, and that moisture is cooler than the bean and probe.
+  Routing all of it through the slow surface pool instead — which is what the
+  model used to do — spreads the same energy over ninety seconds and the crash
+  disappears into the glide.
 - **The exotherm** is the teeth, and it depletes. Arrhenius kinetics on a finite
   reactant, so self-heating builds through browning, peaks after first crack, and
   fades — a bump, not an escape.
@@ -86,15 +90,18 @@ instant it ruptures**, so the shape of the crash is the shape of the crackle.
 
 | Lot | Spread | Crackle | Peak | Outcome |
 |---|---|---|---|---|
-| Sorted to one screen | 2.0°C | 69s | 266/s | Drops at 213°C, 21% development |
-| Nominal | 3.5°C | 106s | 151/s | Drops at 213°C, 24% development |
-| Unsorted, mixed screen | 6.0°C | 175s | 88/s | **Stalls** — never reaches drop |
+| Sorted to one screen | 2.0°C | 117s | 95/s | Drops at 213°C, 22% development |
+| Nominal | 3.5°C | 160s | 75/s | Drops at 213°C, 25% development |
+| Unsorted, mixed screen | 6.0°C | 242s | 56/s | Drops at 213°C, 30% development |
+| Wild, unsortable | 13.0°C | 474s | 21/s | **Runs the clock out** at 211°C |
 
-The ragged lot fails for a reason nothing in the model was told to produce. Its
+What a ragged lot costs is control of the number the player is asked to hit. Its
 stragglers start popping half a minute early, so first crack gets called too soon
-and the gas comes down on schedule; then the batch bleeds its core water out over
-three minutes while the roast has no heat under it. A sharp crash is survivable.
-A long one is what stalls you.
+and the gas comes down on schedule; then the batch is still cracking well into
+development and the roast runs long. Only a genuinely unsortable lot fails
+outright. An earlier version of this model killed the roast at a 6°C spread, but
+that was an over-strong exotherm leaving no margin anywhere rather than a fact
+about screen size — see *What the retune changed* below.
 
 That makes §9.2's sorting table pay off twice. It is framed there as costing yield
 to protect the score; here it also buys the single piece of information the
@@ -122,17 +129,17 @@ adds gas puts it back positive.
 
 The reading is honest and it is early. Against a healthy roast at the same moment:
 
-| Time | Healthy | Dying | |
-|---|---|---|---|
-| 8:00 | 282 W | 266 W | indistinguishable |
-| 9:00 | 264 W | 189 W | sagging |
-| 9:30 | 302 W | 158 W | clearly wrong |
-| 10:00 | 392 W | 125 W | |
-| 11:00 | *dropped* | −26 W | now it is fatal |
+No successful reference roast ever reads negative, and on a dying one the level
+sags a couple of minutes before the sign flips, so the reading is a trend to watch
+rather than a light that comes on too late. `A_dying_roast_says_so_with_time_left_to_act`
+measures that lead rather than sampling it at fixed seconds.
 
-The sign flips a minute before the roast dies; the *level* diverges two and a half
-minutes before that. No successful reference roast ever reads negative, so the
-warning stays worth listening to.
+**The warning covers less than it used to, though, and that is worth knowing.**
+With the energy balance corrected, only a *deep* cut actually drives the beans
+net-negative. Just above that — around 0.31 on the pre-crack dial — a failing
+roast never goes negative at all; it simply crawls, never reaching drop, and the
+clock cap is what ends it. `NetBeanWatts` is still true, but it is no longer a
+complete failure detector, and `Abandon` inherits that gap.
 
 **The drum gets emptied.** `MaxRoastSeconds` caps the roast, and a pilot can
 `Abandon` — give up once the beans have been losing heat for a solid minute with
@@ -142,51 +149,59 @@ the same.
 
 | | Outcome | Ended | Cost vs a good roast |
 |---|---|---|---|
-| textbook | Dropped | 10.1 min | — |
-| pre-crack gas 0.18 | Abandoned | 10.4 min | 103% |
-| cut too early | Abandoned | 11.2 min | 111% |
-| mixed screen | Abandoned | 11.9 min | 118% |
-| browning 0.36 | Abandoned | 14.2 min | 142% |
+| textbook | Dropped | 12.4 min | — |
+| cut too shallow | Dropped | 11.3 min | 91% |
+| cut too deep | Abandoned | 13.0 min | 105% |
+| mixed screen | Dropped | 12.8 min | 103% |
+| baked | Timed out | 15.0 min | 121% |
+| dense lot, fixed trace | Timed out | 15.0 min | 121% |
 
 ## Is it fair?
 
-Every knob now fails in one direction only, with no holes in the middle. Below,
-`ok` means dropped at 213°C with 15–25% development, `(n%)` means it finished but
-off-target, and `Nm` means the roast was given up on after N minutes.
+The pre-crack gas is the dial that decides the roast, and it fails in one
+direction only with no holes in the middle. `Nm` means the roast was given up on
+or ran the clock out after N minutes; a percentage means it finished, at that
+development ratio.
 
 ```
-mid-roast browning dial
-   0.34   0.36   0.38   0.40   0.42   0.44   0.46   0.48   0.50   0.52
-  15.0m  14.2m  13.6m  (29%)  (26%)   25%    23%    22%    22%    21%
-
 pre-crack gas
-   0.14   0.16   0.18   0.20   0.22   0.24   0.26   0.28   0.30   0.32   0.34
-  10.1m  10.2m  10.4m  10.7m  11.2m  (32%)   23%    21%    19%    18%    17%
-
-when the pre-crack cut is made (seconds before the crack)
-     90     75     60     50     45     40     30     20
-  11.2m  11.2m  12.1m  (25%)   23%    22%    20%    18%
+   0.26   0.30   0.33   0.36   0.39   0.42   0.44   0.47   0.50   0.53   0.58
+  13.0m  14.5m  15.0m  15.0m   31%    27%    25%    23%    21%    20%    18%
 ```
 
-Each row reads left-to-right as one story: too little heat stalls, more heat
-shortens development, and there is a band in between. That was not always true —
-an earlier version of this model had a hole in the middle of the browning row,
-where a setting that worked, a setting that failed, and a setting that worked
-again sat next to each other with no rule connecting them. Nothing was done about
-fairness directly; the two-pool moisture model and the bean population each
-replaced a hard switch with a mechanism, and mechanisms turn cliffs into slopes.
+Read left to right that is one story: too little heat and the roast never gets
+there, more heat and development shortens, with a band in between. That is the
+fairness property §9.4 wants, and nothing was aimed at it directly — it falls out
+of the energy balance being right.
 
-That is worth keeping as a working principle: **on this model, adding physics has
-fixed fairness more reliably than clamping would have.**
+## The energy balance, and why it is the whole thing
 
-What is left is that the low end is still a cliff rather than a slope — 0.24
-pre-crack gas finishes, 0.22 does not. A minimum burner floor helps the browning
-phase (0.10 rescues the mixed-screen lot, 0.15 makes the whole browning row work)
-but never rescues a roast whose gas was cut too early, because the gas needed to
-*hold* a roast rises as the beans get hotter. A flat floor is the wrong shape. The
-realistic version is a heavier drum, which coasts in proportion — at the cost of
-more lag, which is the mechanic, so it wants a feel test rather than a decision on
-paper.
+Where the beans' heat comes from over a textbook roast:
+
+| | burner | drum → bean | exotherm | evaporation | headroom |
+|---|---|---|---|---|---|
+| 5:00 | 2064 W | 792 W | 9 W | 477 W | +99°C |
+| 8:00 | 2064 W | 539 W | 47 W | 344 W | +67°C |
+| 9:18 *(crack)* | 1892 W | 448 W | 90 W | 340 W | +56°C |
+| 11:40 | 1162 W | 231 W | 192 W | 190 W | +29°C |
+| 12:24 *(drop)* | 1162 W | 129 W | 261 W | 137 W | +16°C |
+
+Two things have to be true here and both were false before the retune.
+
+**The drum stays hotter than the beans.** Headroom is positive the whole way, so
+the burner is still the thing heating the coffee at drop. Previously the exotherm
+reached 1100 W against a drum-to-bean path capped near 800 W: the beans heated
+themselves against a drum that had gone 43°C *colder* than they were, the dial
+contributed 162 W of the total, and development was on rails no matter what the
+player did.
+
+**Evaporation tapers.** It falls from 477 W to 137 W as the free water actually
+leaves. Previously it sat at 400–460 W for the entire roast — the rate law scales
+with (BT − 60) without bound, so as the beans heated, the growing drive cancelled
+the depleting pool and the term never fell. That permanent drain is what forced
+the gas high enough that it could never come down again, which is why the taught
+pre-crack *reduction* was impossible on the old machine and the exotherm had to be
+inflated to compensate.
 
 ## Reference roasts
 
@@ -194,69 +209,72 @@ paper.
 
 | Roast | Reads |
 |---|---|
-| `Textbook` | Published protocol played straight. Crack 07:55, drop 09:52 at 213°C, 20% development |
-| `CutTooEarly` | Pre-crack reduction made 90s out. Stalls into a negative rate of rise and never reaches drop |
-| `CutTooLate` | Reduction left until 10s out. No crash — it just arrives at drop 66s after the crack, 12% development |
-| `Baked` | Heat pulled at 00:55. Drying floor of 1.5°C/min, crack five minutes late, 8% development |
-| `Scorch` | Full burner. The probe reaches drop temperature before the beans have cracked: burnt outside, raw inside |
+| `Textbook` | Published protocol played straight. Crack 09:18, drop 12:24 at 213°C, 25% development |
+| `CutTooDeep` | Pre-crack gas taken to 0.26. Loses momentum, goes net-negative, given up on at 13:00 |
+| `CutTooShallow` | Barely a reduction at all. Finishes early at 11:16, 18% development — underdeveloped |
+| `Baked` | Heat pulled at 00:55. Drying floor near 2°C/min, crack four minutes late, runs the clock out |
+| `Scorch` | Full burner. Bolts through first crack and hits drop 28s later: burnt outside, raw inside |
 | `HandPlayed` | A fixed trace that works — on the lot it was made for |
-| `WellSorted` | A charge. One screen size: a tight, loud volley at first crack |
-| `MixedScreen` | A charge. Unsorted: a long quiet bleed that stalls the roast |
-| `DenseLot` | A charge, not a roast. `HandPlayed` stalls out on it; `Textbook` adapts |
+| `WellSorted` | A charge. One screen size: a tighter, louder volley at first crack |
+| `MixedScreen` | A charge. Unsorted: a long quiet bleed that pushes development to 30% |
+| `DenseLot` | A charge, not a roast. `HandPlayed` runs out of clock on it; `Textbook` adapts |
 
 Most references are pilots rather than recordings, and that is itself a finding.
 A recorded trace cuts the gas at a fixed second whether or not the roast has got
-there yet, so it is brittle: moving one mid-roast dial step by two percent is the
-difference between a finished roast and one that stalls at 120°C. Anything that
-has to act relative to first crack has to watch the curve — which is what the
-player will be doing, and what makes §9.4's automation progression land.
+there yet, so it lands somewhere else on a lot that heats differently — which is
+what `DenseLot` shows. Anything that has to act relative to first crack has to
+watch the curve, which is what the player will be doing.
 
-## What the model agrees with, and where it doesn't
+That is what makes §9.4's automation progression land.
 
-The published protocol for washed coffees on a drum roaster says: make the
-pre-crack gas reduction about **45 seconds** before first crack, leave the dial
-alone across the crack itself, then step down against development ratio. Nothing
-tells the roaster when the crack is 45 seconds away — they extrapolate from the
-curve, which is what `DoctrinePilot` does and what the player will do by eye.
+## What the retune changed, and what it cost
 
-Sweeping that lead time is the closest thing to a validation this model has:
+The machine was re-derived as a whole rather than fitted knob by knob: burner
+power and drum loss were solved from the roast the machine is supposed to be able
+to play (dial near half travel approaching first crack, near a third at drop), and
+the remaining constants searched against the full landmark set. Three defects went
+with it — the exotherm dominating the heat path, evaporation never tapering, and
+the rupture vent trickling through the surface pool instead of flashing.
 
-| Lead | Result |
-|---|---|
-| 120s | Never cracks |
-| 90s | Stalls — rate of rise goes negative, never reaches drop |
-| 60s | Crashes to 2.7°C/min, drops cool at 205°C |
-| **45s** | **Clean. Rate of rise 8.2 → 6.8, drop 213°C at 20% development** |
-| 30s and later | No crash, but development collapses toward 12% |
+Two claims the old model made did not survive, and they are worth stating plainly
+because both were load-bearing.
 
-The taught number is the optimum in the model, with a different failure on each
-side. That was not tuned for — the config was fitted to curve *shape* targets
-before the protocol was implemented.
+**The taught 45-second lead time is a soft optimum, not a knife edge.** The old
+model reported a different failure on each side of 45s — never cracks at 120s,
+stalls at 90s, underdeveloped by 30s — and this README called that "the closest
+thing to a validation this model has". It was an artefact. Sweeping the lead now:
 
-Two places the model does **not** reproduce the literature, recorded here rather
-than papered over:
+```
+lead     120s   90s   60s   45s   30s   20s   10s
+dev       26%   25%   25%   25%   25%   25%   24%
+```
+
+Nothing fails, and the whole range moves the development ratio by two points. The
+old sensitivity came from an exotherm strong enough to leave the roast metastable,
+so any nudge tipped it. What this machine punishes is the *depth* of the reduction,
+not its timing — the sweep above runs from a dead roast to an underdeveloped one.
+Timing still moves development in the direction the guidance says; it just is not
+the skill the minigame can be built on. **That is a design question, not a bug:**
+§9.4's "punishable but telegraphed" needs a second axis if precise timing is meant
+to be the skill.
+
+**Sorting no longer decides whether a roast survives.** A 6°C spread used to stall
+the roast outright; now it costs eight points of development ratio and a much worse
+audio cue. §9.2's sorting table still pays off twice, but the second payoff is
+"you can hit your number" rather than "the batch does not die".
+
+Two things the model still does not reproduce:
 
 - **Late cuts don't deepen the crash.** Guidance says a reduction landing inside
   the crack window makes the crash worse. Here a late cut instead leaves too much
-  heat in the drum, so the roast arrives at drop temperature underdeveloped. Same
-  verdict, different mechanism.
-- **The drying-to-crash link is weak.** Rushing drying should leave a wetter core
-  and a deeper crash. It does, but only slightly (core moisture 0.018 versus
-  0.013), and the effect is swamped by how much hotter the drum is. If that link
-  is wanted as a mechanic, core migration needs to be more time-driven and less
-  temperature-driven — defensible, since diffusion out of the bean is
-  diffusion-limited, but it is a change to make deliberately rather than by
-  accident.
-- **Airflow is not modelled, and adding it as a knob would not help yet.** Swept
-  as a single multiplier on convective coupling, drum losses, and moisture
-  removal, it turns out to be near-redundant with the gas dial — it moves peak
-  drum temperature and roast length monotonically and produces the same
-  stall-and-bolt failures. It is also no threat to the lag: dead time moves 18.8s
-  to 17.8s across the whole range, because the lag lives in the probe and the
-  rate-of-rise filter, not the thermal path. A meaningful airflow control needs
-  the heat path split into convective and conductive halves and the bean split
-  into surface and core nodes — which would also get tipping and scorching as
-  distinct defects, and the real cause of first crack.
+  heat in the drum, so the roast arrives at drop underdeveloped. Same verdict,
+  different mechanism.
+- **Airflow is not modelled.** Swept as a single multiplier on convective coupling,
+  drum losses, and moisture removal it is near-redundant with the gas dial. A
+  meaningful airflow control needs the heat path split into convective and
+  conductive halves and the bean split into surface and core nodes — which would
+  also get tipping and scorching as distinct defects, and the real cause of first
+  crack. This is the next piece of work.
 
 ## Tuning
 
@@ -266,21 +284,29 @@ tuned until the curve looked right, and says which is which in the comments.
 Grounded: bean specific heat 1450 J/(kg·K), against measurements of 1.0–1.9 with
 calorimetry near 1.40–1.45. Exotherm budget 350 kJ/kg, in the measured 250–420
 range for green coffee to 300°C — most of which sits above any drop temperature,
-so a normal roast spends only a fifth of it. Exotherm onset near 150°C. Drying
+so a normal roast spends about a tenth of it. Exotherm onset near 150°C. Drying
 phase ending at 150°C. First crack at 196°C.
 
-Fitted: the conductances and heat capacities, against published curve targets —
-turning point near a minute at 80–95°C, roughly 10°C/min through the middle of
-the roast and 5°C/min at first crack, drop near 213°C.
+Fitted: burner power, the conductances and heat capacities, and the moisture
+coefficients, solved together against curve targets — turning point near a minute
+at 80–95°C, roughly 11°C/min through the middle of the roast and 8 at first crack,
+a visible dip of 3–4°C/min across the crack, drop near 213°C, and positive drum
+headroom throughout.
+
+**`ExothermRateAt200C` is the one to be careful with.** It decides whether the
+dial still matters after first crack. Self-heating and the drum-to-bean path are
+comparable on a real machine, which is why a roaster can reduce gas across the
+crack at all; set it much higher and the model stops being a game.
 
 Two knobs are design decisions wearing physics costumes:
 
 - **`RorSmoothing`** decides how far ahead a crash is visible. It is the
   telegraphing dial behind "punishable but telegraphed". Feel-test it; do not
   quietly tune it.
-- **`RuptureVentFraction`** decides how legible the crash is. The physical crash
-  is partly masked by probe lag, which is realistic and works against §9.4's
-  requirement that failures be visible before they are tasted.
+- **`RuptureVentFraction`** decides how legible the crash is — it supplies rather
+  more than a quarter of the dip, the rest being the reduction itself and the
+  released water evaporating. Steep: the latent heat of the core water is large
+  next to everything else moving at first crack.
 - **`CrackTempSpread`** on the charge decides what first crack sounds like, and
   therefore how well the player can time the one reduction that matters. It is
   the lever connecting sorting to roasting.

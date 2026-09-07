@@ -61,8 +61,8 @@ public sealed class DialTracePilot : IRoastPilot
 /// reduction lands on top of the crash instead of ahead of it.</item>
 /// <item>Change nothing from 45s before to 45s after the start of first crack —
 /// touching the dial inside that window deepens the crash.</item>
-/// <item>From roughly 45s after first crack, step down: halve the gas near 12%
-/// development, again near 14%, again near 16%.</item>
+/// <item>From roughly 45s after first crack, step down: take about 15% off the gas
+/// near 12% development, again near 14%, again near 16%.</item>
 /// </list>
 /// <para>
 /// The interesting part is that the first rule needs a prediction. Nothing tells
@@ -95,7 +95,7 @@ public sealed class DoctrinePilot : IRoastPilot
     /// </param>
     public DoctrinePilot(
         DialTrace? opening = null,
-        double preCrackGas = 0.30,
+        double preCrackGas = 0.44,
         double dropTemp = 213.0,
         double firstCrackTemp = 196.0,
         double leadSeconds = 45.0)
@@ -107,11 +107,16 @@ public sealed class DoctrinePilot : IRoastPilot
         _leadSeconds = leadSeconds;
     }
 
-    /// <summary>Full gas into the charge, then two reductions through drying.</summary>
+    /// <summary>Gas into the charge, then two reductions through drying.</summary>
+    /// <remarks>
+    /// Not full travel at charge: the drum is already preheated, and leaving headroom
+    /// is what lets the later steps still be steps. The last one has to land above the
+    /// pre-crack gas, or the "reduction" the protocol turns on is an increase.
+    /// </remarks>
     public static DialTrace DefaultOpening { get; } = DialTrace.Of(
-        new DialMove(0, 1.00),
+        new DialMove(0, 0.85),
         new DialMove(90, 0.66),
-        new DialMove(240, 0.46));
+        new DialMove(240, 0.48));
 
     /// <summary>Seconds to first crack as the roaster would estimate it from the curve.</summary>
     public static double PredictedSecondsToCrack(in RoastState state, double firstCrackTemp)
@@ -143,9 +148,9 @@ public sealed class DoctrinePilot : IRoastPilot
         // Then step down against development ratio.
         var dtr = state.DevelopmentTimeRatio;
         var gas = _preCrackGas;
-        if (dtr >= 0.12) gas *= 0.5;
-        if (dtr >= 0.14) gas *= 0.5;
-        if (dtr >= 0.16) gas *= 0.5;
+        if (dtr >= 0.12) gas *= 0.85;
+        if (dtr >= 0.14) gas *= 0.85;
+        if (dtr >= 0.16) gas *= 0.85;
         return gas;
     }
 

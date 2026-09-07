@@ -27,14 +27,14 @@ public sealed record Scenario(string Name, string Intent, Func<RoastLog> Run)
             Pilot(ReferenceRoasts.Textbook)),
 
         new Scenario(
-            "cut-too-early",
-            "The pre-crack gas reduction made 90s out instead of 45s. The roast loses\n   momentum, the rate of rise goes negative, and it never reaches drop.",
-            Pilot(ReferenceRoasts.CutTooEarly)),
+            "cut-too-deep",
+            "The pre-crack gas taken down to 0.33. The roast loses momentum, the rate\n   of rise sags toward zero, and it never reaches drop temperature.",
+            Pilot(ReferenceRoasts.CutTooDeep)),
 
         new Scenario(
-            "cut-too-late",
-            "The reduction left until 10s out. Nothing crashes — it arrives at drop\n   temperature barely a minute after first crack, underdeveloped.",
-            Pilot(ReferenceRoasts.CutTooLate)),
+            "cut-too-shallow",
+            "Barely any reduction at all. Nothing crashes and nothing stalls — the roast\n   carries too much heat into development and arrives at drop underdeveloped.",
+            Pilot(ReferenceRoasts.CutTooShallow)),
 
         new Scenario(
             "baked",
@@ -43,7 +43,7 @@ public sealed record Scenario(string Name, string Intent, Func<RoastLog> Run)
 
         new Scenario(
             "scorch",
-            "Full burner held down. The probe reaches drop temperature before the beans\n   have cracked: burnt outside, raw inside.",
+            "Full burner held down. The beans bolt through first crack and reach drop\n   temperature half a minute later: burnt outside, raw inside.",
             Trace(ReferenceRoasts.Scorch)),
 
         new Scenario(
@@ -58,7 +58,7 @@ public sealed record Scenario(string Name, string Intent, Func<RoastLog> Run)
 
         new Scenario(
             "mixed-screen",
-            "The same beans, unsorted. The stragglers pop half a minute early, the\n   crackle never gets loud, and the roast bleeds out and stalls.",
+            "The same beans, unsorted. The stragglers pop half a minute early, the\n   crackle never gets loud, and development runs long before drop is reached.",
             Pilot(ReferenceRoasts.Textbook, ReferenceRoasts.MixedScreen)),
 
         new Scenario(

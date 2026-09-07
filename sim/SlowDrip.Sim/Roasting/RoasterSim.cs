@@ -49,6 +49,7 @@ public sealed class RoasterSim
     private double _beanProbe;
     private double _surfaceMoisture;
     private double _coreMoisture;
+    private double _ventingMoisture;
     private double _reactantRemaining = 1.0;
     private double _exothermWatts;
     private double _netBeanWatts;
@@ -87,7 +88,7 @@ public sealed class RoasterSim
         BeanTemp = _beanTemp,
         BeanProbe = _beanProbe,
         RateOfRise = _ror.Value,
-        SurfaceMoisture = _surfaceMoisture,
+        SurfaceMoisture = _surfaceMoisture + _ventingMoisture,
         CoreMoisture = _coreMoisture,
         ReactantRemaining = _reactantRemaining,
         ExothermWatts = _exothermWatts,
@@ -125,37 +126,58 @@ public sealed class RoasterSim
         var wetness = Math.Max(0.0, _surfaceMoisture + _coreMoisture - _cfg.CrackDryReference);
         var popped = _beans.CrackUpTo(_beanTemp - _cfg.MoistureCrackPenalty * wetness);
 
-        // Core moisture leaves two ways: a slow migration outward in beans that are
-        // still intact, and a rush from each bean at the instant it ruptures. The
-        // second is the crash, and it is paced by how fast the batch is cracking.
+        // Core moisture leaves two ways, and they are different events.
+        //
+        // An intact bean migrates it outward slowly, where it joins the surface
+        // pool and evaporates on that pool's schedule. A bean that ruptures flashes
+        // its share straight to steam: the water was superheated and above
+        // atmospheric pressure inside the bean, so the instant the structure fails
+        // it leaves, taking its latent heat with it right then. That immediacy is
+        // the crash. Routing the vent through the surface pool instead spreads the
+        // same energy over the following minute and a half, and what should be a
+        // cliff arrives as a slightly steeper part of the glide.
         var migrated = 0.0;
+        var flashed = 0.0;
         if (_coreMoisture > 0.0)
         {
             var rate = _cfg.CoreMigrationCoefficient * _coreMoisture * drive;
             migrated = Math.Min(_coreMoisture, rate * dt);
+            _coreMoisture -= migrated;
+            _surfaceMoisture += migrated;
 
             if (popped > 0 && uncrackedBefore > 0)
             {
                 // The water still in the core belongs to the beans still intact, so
-                // each one that goes takes its share of it with it.
+                // each one that goes takes its share of it with it. All of that share
+                // leaves the core pool — a ruptured bean has no intact core left to
+                // hold it — and only the vented part is on its way out as steam; the
+                // rest is now free water on a broken bean, which is the surface pool.
                 var share = (double)popped / uncrackedBefore;
-                migrated += (_coreMoisture - migrated) * share * _cfg.RuptureVentFraction;
+                var released = Math.Min(_coreMoisture, _coreMoisture * share);
+                var venting = released * _cfg.RuptureVentFraction;
+                _coreMoisture -= released;
+                _surfaceMoisture += released - venting;
+                _ventingMoisture += venting;
             }
-
-            migrated = Math.Min(_coreMoisture, migrated);
-            _coreMoisture -= migrated;
-            _surfaceMoisture += migrated;
         }
 
-        // Only surface moisture evaporates, and only evaporation costs latent heat.
-        var qEvaporation = 0.0;
+        // The venting pool drains rather than emptying in the tick the bean popped.
+        if (_ventingMoisture > 0.0)
+        {
+            flashed = _ventingMoisture * (dt / (_cfg.RuptureVentTime + dt));
+            _ventingMoisture -= flashed;
+        }
+
+        // Water leaving costs latent heat whichever way it goes: slowly off the
+        // surface all roast long, and in a rush out of every bean that ruptures.
         var evaporated = 0.0;
         if (_surfaceMoisture > 0.0)
         {
             var rate = _cfg.DryingCoefficient * _surfaceMoisture * drive; // per second, dry basis
             evaporated = Math.Min(_surfaceMoisture, rate * dt);
-            qEvaporation = evaporated / dt * dryMass * _cfg.LatentHeatOfVaporisation;
         }
+
+        var qEvaporation = (evaporated + flashed) / dt * dryMass * _cfg.LatentHeatOfVaporisation;
 
         // Self-heating, with the reactant it consumes tracked so the roast cannot
         // generate heat for ever.

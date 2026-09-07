@@ -188,42 +188,72 @@ public class RoasterSimTests
     // ---- The taught protocol -----------------------------------------------
 
     [Fact]
-    public void Making_the_pre_crack_cut_too_early_stalls_the_roast()
+    public void Cutting_the_pre_crack_gas_too_deep_stalls_the_roast()
     {
         // "Not so low that the roast loses momentum and the bean temperature stops
         // increasing before the end of the roast."
-        var early = Run(ReferenceRoasts.CutTooEarly());
+        var deep = Run(ReferenceRoasts.CutTooDeep());
 
-        Assert.True(early.ReachedFirstCrack);
-        Assert.True(TroughAfterCrack(early) < 0.0,
-            $"Cutting 90s out should stall the roast, trough was {TroughAfterCrack(early):F1} C/min");
-        Assert.True(early.DropTemp < 213.0,
-            "A stalled roast should never reach drop temperature");
+        Assert.True(deep.ReachedFirstCrack);
+        Assert.False(deep.Succeeded, "Cutting to 0.33 should not finish");
+        Assert.True(deep.DropTemp < 213.0, "A stalled roast should never reach drop temperature");
     }
 
     [Fact]
-    public void Making_the_pre_crack_cut_too_late_underdevelops_the_roast()
+    public void Cutting_the_pre_crack_gas_too_shallow_underdevelops_the_roast()
     {
-        // Leave the reduction until the crack is on top of you and the roast
-        // arrives at drop temperature before development has happened.
-        var late = Run(ReferenceRoasts.CutTooLate());
+        // Leave too much heat in and the roast arrives at drop temperature before
+        // development has happened.
+        var shallow = Run(ReferenceRoasts.CutTooShallow());
         var textbook = Run(ReferenceRoasts.Textbook());
 
-        Assert.True(late.ReachedFirstCrack);
-        Assert.True(late.DevelopmentTimeRatio < textbook.DevelopmentTimeRatio - 0.04,
-            $"Late cut should shorten development: {late.DevelopmentTimeRatio:P0} vs {textbook.DevelopmentTimeRatio:P0}");
+        Assert.True(shallow.Succeeded);
+        Assert.True(shallow.DevelopmentTimeRatio < textbook.DevelopmentTimeRatio - 0.04,
+            $"A shallow cut should shorten development: {shallow.DevelopmentTimeRatio:P0} vs {textbook.DevelopmentTimeRatio:P0}");
     }
 
     [Fact]
-    public void The_taught_lead_time_sits_between_the_two_failures()
+    public void The_pre_crack_gas_has_a_band_with_a_failure_only_below_it()
     {
-        // The published number is 45 seconds. The model should agree that it is
-        // between stalling and bolting rather than at either end.
-        var textbook = Run(ReferenceRoasts.Textbook());
+        // What this machine actually punishes is how far the gas comes down, and it
+        // punishes it in one direction: too little heat stalls, more heat shortens
+        // development, and there is a band in between. Read left to right this is
+        // one story with no holes in it, which is the fairness property #9.4 wants.
+        var results = new[] { 0.33, 0.39, 0.44, 0.50, 0.58 }
+            .Select(g => Run(new DoctrinePilot(preCrackGas: g)))
+            .ToArray();
 
-        Assert.True(TroughAfterCrack(textbook) > 0.0, "45s lead should not stall");
-        Assert.InRange(textbook.DevelopmentTimeRatio, 0.15, 0.30);
-        Assert.InRange(textbook.DropTemp, 210.0, 216.0);
+        Assert.False(results[0].Succeeded, "The bottom of the sweep should fail");
+        Assert.All(results.Skip(1), r => Assert.True(r.Succeeded, "Everything above the floor should finish"));
+
+        var ratios = results.Skip(1).Select(r => r.DevelopmentTimeRatio).ToArray();
+        for (var i = 1; i < ratios.Length; i++)
+        {
+            Assert.True(ratios[i] < ratios[i - 1],
+                $"More gas should shorten development, but {ratios[i - 1]:P0} -> {ratios[i]:P0}");
+        }
+    }
+
+    [Fact]
+    public void The_taught_lead_time_is_a_soft_optimum_not_a_knife_edge()
+    {
+        // Worth stating as a test because the previous model claimed the opposite and
+        // the claim was load-bearing. With the energy balance corrected, moving the
+        // reduction from 120s ahead of the crack to 10s ahead never fails a roast; it
+        // slides the development ratio by a couple of points. The knife edge came from
+        // an exotherm strong enough to leave the roast metastable, not from roasting.
+        var leads = new[] { 120.0, 90.0, 45.0, 20.0, 10.0 }
+            .Select(l => Run(new DoctrinePilot(preCrackGas: ReferenceRoasts.PreCrackGas, leadSeconds: l)))
+            .ToArray();
+
+        Assert.All(leads, r => Assert.True(r.Succeeded, "No lead time in the taught range should fail the roast"));
+
+        var spread = leads.Max(r => r.DevelopmentTimeRatio) - leads.Min(r => r.DevelopmentTimeRatio);
+        Assert.InRange(spread, 0.005, 0.06);
+
+        // Cutting earlier still means longer in development, which is the direction
+        // the guidance gives even if the magnitude is smaller than it claims.
+        Assert.True(leads[0].DevelopmentTimeRatio > leads[^1].DevelopmentTimeRatio);
     }
 
     // ---- The exotherm ------------------------------------------------------
@@ -345,13 +375,19 @@ public class RoasterSimTests
         // precious pulls you back to the dial." A fixed trace cuts the gas at a
         // fixed second whether or not the roast has got there; a controller that
         // watches the curve does not.
-        var recorded = Run(ReferenceRoasts.HandPlayed, ReferenceRoasts.DenseLot);
-        var piloted = Run(ReferenceRoasts.Textbook(), ReferenceRoasts.DenseLot);
-        var recordedOnItsOwnLot = Run(ReferenceRoasts.HandPlayed);
+        // Capped where the config caps it: a trace "misses" if it cannot get there in
+        // the time anyone would actually stand and give it, not in twenty minutes.
+        static RoastLog Capped(DialTrace trace, RoastCharge? charge = null) =>
+            RoastRunner.Run(trace, charge: charge, dropWhen: RoastRunner.DropAtTemp(213.0), sampleInterval: 1.0);
 
-        Assert.True(recordedOnItsOwnLot.ReachedFirstCrack, "The trace should work on the lot it was made for");
-        Assert.False(recorded.ReachedFirstCrack, "The same trace should miss on the denser, wetter lot");
-        Assert.True(piloted.ReachedFirstCrack, "The controller should adapt to it");
+        var recorded = Capped(ReferenceRoasts.HandPlayed, ReferenceRoasts.DenseLot);
+        var piloted = RoastRunner.Run(ReferenceRoasts.Textbook(), charge: ReferenceRoasts.DenseLot, sampleInterval: 1.0);
+        var recordedOnItsOwnLot = Capped(ReferenceRoasts.HandPlayed);
+
+        Assert.True(recordedOnItsOwnLot.Succeeded, "The trace should work on the lot it was made for");
+        Assert.InRange(recordedOnItsOwnLot.DropTemp, 210.0, 216.0);
+        Assert.False(recorded.Succeeded, "The same trace should miss on the denser, wetter lot");
+        Assert.True(piloted.Succeeded, "The controller should adapt to it");
         Assert.InRange(piloted.DropTemp, 210.0, 216.0);
     }
 
@@ -505,23 +541,42 @@ public class BeanPopulationTests
     }
 
     [Fact]
-    public void A_ragged_lot_starts_popping_early_and_can_fool_the_protocol()
+    public void A_ragged_lot_starts_popping_early_and_costs_control_of_development()
     {
         // Emergent, not authored. The stragglers read as first crack, the gas comes
-        // down on schedule, and the roast stalls with the batch still cracking.
+        // down on schedule, and the batch is still cracking well into development —
+        // so the roast runs long and the one number #9.4 asks the player to hit slides
+        // out from under them. It does not kill the roast: only a genuinely extreme
+        // spread does that, which is a fact about screen size rather than about how
+        // little margin the machine has.
         var sorted = Run(ReferenceRoasts.WellSorted);
         var mixed = Run(ReferenceRoasts.MixedScreen);
 
         Assert.True(mixed.FirstCrackTime < sorted.FirstCrackTime,
             "A wider spread should pop its outliers sooner");
-        Assert.True(sorted.DropTemp >= 212.5, "The sorted lot should finish");
-        Assert.True(mixed.DropTemp < 212.5, "The unsorted lot should stall short of drop");
+        Assert.True(sorted.Succeeded && mixed.Succeeded);
+        Assert.True(mixed.DevelopmentTimeRatio > sorted.DevelopmentTimeRatio + 0.04,
+            $"A ragged lot should run long in development: {mixed.DevelopmentTimeRatio:P0} vs {sorted.DevelopmentTimeRatio:P0}");
+    }
+
+    [Fact]
+    public void A_lot_ragged_enough_cannot_be_roasted_at_all()
+    {
+        // Capped where the config caps it, as above: unroastable means "not in the
+        // time anyone would give it", not "not in twenty minutes".
+        var wild = RoastRunner.Run(ReferenceRoasts.Textbook(),
+            charge: new RoastCharge { CrackTempSpread = 13.0 }, sampleInterval: 1.0);
+
+        Assert.False(wild.Succeeded, "A 13C spread should not be recoverable");
+        Assert.True(wild.ReachedFirstCrack, "It should still crack — it just never gets there");
     }
 
     [Fact]
     public void Pops_stop_when_the_roast_stalls()
     {
-        var log = Run(ReferenceRoasts.MixedScreen);
+        var log = RoastRunner.Run(ReferenceRoasts.CutTooDeep(), sampleInterval: 0.5);
+
+        Assert.False(log.Succeeded);
         Assert.True(log.Samples[^1].PopsPerSecond < 3.0);
         Assert.True(log.Samples[^1].CrackedFraction < 1.0,
             "A stalled roast should leave part of the batch uncracked");
@@ -544,6 +599,9 @@ public class StallLegibilityTests
 {
     private static RoastLog Run(RoastCharge? charge = null) =>
         RoastRunner.Run(ReferenceRoasts.Textbook(), charge: charge, sampleInterval: 1.0);
+
+    /// <summary>A roast that genuinely dies: the pre-crack gas taken too far down.</summary>
+    private static RoastLog Dying() => RoastRunner.Run(ReferenceRoasts.CutTooDeep(), sampleInterval: 1.0);
 
     // ---- Expose state, hide outcome ----------------------------------------
 
@@ -592,31 +650,31 @@ public class StallLegibilityTests
     [Fact]
     public void A_dying_roast_says_so_with_time_left_to_act()
     {
-        var log = Run(ReferenceRoasts.MixedScreen);
+        var log = Dying();
         Assert.Equal(RoastOutcome.Abandoned, log.Outcome);
 
         var wentNegative = log.Samples.First(s => s.Time > 120 && s.NetBeanWatts < 0).Time;
         Assert.True(wentNegative < log.DropTime,
             "The warning has to arrive before the roast ends, not with it");
 
-        // The real lead is that the level sags long before the sign flips, and the
-        // gap widens as it goes — so the reading is a trend to watch, not a light
-        // that comes on when it is already too late. Compared at fixed times, both
-        // of which land while the healthy roast is still running.
+        // The real lead is that the level sags long before the sign flips, so the
+        // reading is a trend to watch rather than a light that comes on too late.
+        // Measured rather than sampled at fixed seconds: find when the dying roast
+        // first falls a clear margin behind a healthy one and stays there.
         var healthy = Run();
-        double Gap(double t) =>
-            log.Samples.First(s => s.Time >= t).NetBeanWatts
-            - healthy.Samples.First(s => s.Time >= t).NetBeanWatts;
+        double NetAt(RoastLog l, double t) => l.Samples.First(s => s.Time >= t).NetBeanWatts;
 
-        var early = Gap(540);
-        var later = Gap(590);
+        var lastHealthy = healthy.Samples[^1].Time;
+        var sagged = Enumerable.Range(0, (int)(Math.Min(wentNegative, lastHealthy) / 10))
+            .Select(i => i * 10.0)
+            .Where(t => t > 120)
+            .FirstOrDefault(t => NetAt(log, t) < NetAt(healthy, t) - 40.0, -1.0);
 
-        Assert.True(early < -20,
-            $"The dying roast should already read low a minute before the flip ({early:F0}W behind)");
-        Assert.True(later < early * 2.0,
-            $"The gap should widen: {early:F0}W at 540s, {later:F0}W at 590s");
-        Assert.True(540 < wentNegative,
-            "Both readings should come from before the sign actually flipped");
+        Assert.True(sagged > 0, "The dying roast should read measurably low before the sign flips");
+        Assert.True(wentNegative - sagged >= 60.0,
+            $"The level should sag well before the sign flips: sagged at {sagged:F0}s, negative at {wentNegative:F0}s");
+        Assert.True(NetAt(log, sagged + 30) < NetAt(healthy, sagged + 30),
+            "and it should stay behind, not dip once");
     }
 
     // ---- Nobody watches a dead batch for twenty minutes --------------------
@@ -624,7 +682,7 @@ public class StallLegibilityTests
     [Fact]
     public void A_failed_roast_is_abandoned_rather_than_run_out_the_clock()
     {
-        var log = Run(ReferenceRoasts.MixedScreen);
+        var log = Dying();
 
         Assert.Equal(RoastOutcome.Abandoned, log.Outcome);
         Assert.True(log.DropTime < RoasterConfig.Default.MaxRoastSeconds - 60,
@@ -656,6 +714,6 @@ public class StallLegibilityTests
     public void Outcome_distinguishes_finishing_from_giving_up()
     {
         Assert.True(Run().Succeeded);
-        Assert.False(Run(ReferenceRoasts.MixedScreen).Succeeded);
+        Assert.False(Dying().Succeeded);
     }
 }

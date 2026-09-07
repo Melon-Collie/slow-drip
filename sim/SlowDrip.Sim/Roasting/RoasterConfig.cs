@@ -26,13 +26,24 @@ public sealed record RoasterConfig
     // ---- Environment body (drum + air) -------------------------------------
 
     /// <summary>Burner output at full dial (W).</summary>
-    public double BurnerPower { get; init; } = 5000.0;
+    /// <remarks>
+    /// Sized with <see cref="EnvLossConductance"/> against the roast this machine is
+    /// supposed to be able to play: the dial should sit near half travel approaching
+    /// first crack and near a third at drop, so the taught pre-crack reduction is a
+    /// reduction the machine can actually survive. See sim/README.md.
+    /// </remarks>
+    public double BurnerPower { get; init; } = 4300.0;
 
     /// <summary>Effective heat capacity of drum and air (J/K). Sets the burner-to-drum lag.</summary>
     public double EnvHeatCapacity { get; init; } = 2500.0;
 
     /// <summary>Conductance from drum to room (W/K). Sets the ceiling temperature.</summary>
-    public double EnvLossConductance { get; init; } = 9.0;
+    /// <remarks>
+    /// This is how much of the burner is spent holding the drum hot rather than
+    /// roasting, so it decides how much of the dial's travel is usable. At 250C it
+    /// costs about 1.5 kW of the 4.3 kW available.
+    /// </remarks>
+    public double EnvLossConductance { get; init; } = 6.5;
 
     // ---- Bean body ---------------------------------------------------------
 
@@ -65,7 +76,13 @@ public sealed record RoasterConfig
     /// Evaporation rate coefficient (1/(K*s)), applied to surface moisture times
     /// the drive above <see cref="DryingOnset"/>.
     /// </summary>
-    public double DryingCoefficient { get; init; } = 3.8e-5;
+    /// <remarks>
+    /// This has to be fast enough that the surface pool actually empties. The drive
+    /// grows with bean temperature all roast, so if free water is still present late
+    /// the evaporation term keeps growing with it and becomes a permanent drain that
+    /// no burner setting can outrun — which is what stops the gas ever coming down.
+    /// </remarks>
+    public double DryingCoefficient { get; init; } = 6.0e-5;
 
     /// <summary>
     /// Rate at which core moisture migrates out to the surface (1/(K*s)).
@@ -78,26 +95,52 @@ public sealed record RoasterConfig
     public double CoreMigrationCoefficient { get; init; } = 3.0e-5;
 
     /// <summary>
-    /// Share of its remaining core water a bean lets go at the moment it ruptures
-    /// (0..1).
+    /// Share of a ruptured bean's core water that flashes straight to steam rather
+    /// than joining the surface pool (0..1).
     /// </summary>
     /// <remarks>
-    /// This is the mechanism behind the RoR crash. At first crack the beans vent a
-    /// great deal of moisture from their cores in a short period, and that moisture
-    /// is cooler than the bean surface and the probe — so the readout drops whether
-    /// or not the roaster did anything.
+    /// This is the mechanism behind the RoR crash. At first crack the beans release
+    /// a great deal of moisture from their cores in a short period, and that
+    /// moisture is cooler than the bean surface and the probe — so the readout drops
+    /// whether or not the roaster did anything.
+    /// <para>
+    /// All of a ruptured bean's core water leaves the core, because a broken bean
+    /// has no intact core to hold it. This fraction decides how much of it leaves
+    /// <i>as steam, now</i>, paying its latent heat at the instant of rupture. The
+    /// rest becomes free water on a broken bean — the surface pool — and evaporates
+    /// on that pool's slower schedule. The split is what makes the crash a cliff
+    /// rather than a slightly steeper part of the glide.
+    /// </para>
     /// <para>
     /// Venting is tied to the rate beans are actually rupturing, not to how many
     /// have ruptured so far, because a bean lets go once. That makes the shape of
     /// the crash the shape of the crackle — and the sorted lot comes off better on
     /// both counts. It cracks later and drier, so there is less water to lose, and
-    /// it gets the loss over with in forty seconds. The ragged lot starts cracking
-    /// earlier and wetter and then bleeds for three minutes, draining the roast the
-    /// whole time the gas is already down. A sharp crash is survivable; a long one
-    /// is what stalls you.
+    /// it gets the loss over with in under two minutes. The ragged lot starts
+    /// cracking earlier and wetter and then bleeds for four, draining the roast the
+    /// whole time the gas is already down. A sharp crash is cheap; a long one is
+    /// what costs you the development ratio.
+    /// </para>
+    /// <para>
+    /// Fitted, and sensitive: the latent heat of the core water is large next to
+    /// everything else moving at first crack, so this is a steep dial. On the
+    /// reference roast the flash supplies rather more than a quarter of the dip;
+    /// the rest is the pre-crack reduction and the released water evaporating.
     /// </para>
     /// </remarks>
-    public double RuptureVentFraction { get; init; } = 0.85;
+    public double RuptureVentFraction { get; init; } = 0.40;
+
+    /// <summary>Time constant over which a ruptured bean finishes venting (s).</summary>
+    /// <remarks>
+    /// A bean does not empty in one timestep; the fracture opens and the steam leaves
+    /// over a moment. Modelling it as instantaneous also quantises the vent by the
+    /// integer number of beans that happen to cross their threshold in a given tick,
+    /// which at a few tens of pops per second is one or zero — so the reported energy
+    /// balance alternates between a spike and a hole while the bean temperature, which
+    /// integrates it, is perfectly smooth. Draining a pool fixes both, and the pool is
+    /// the more honest picture anyway.
+    /// </remarks>
+    public double RuptureVentTime { get; init; } = 1.5;
 
     // ---- Exotherm ----------------------------------------------------------
 
@@ -107,13 +150,22 @@ public sealed record RoasterConfig
     /// <remarks>
     /// Calorimetry of green coffee heated to 300C gives 250–420 kJ/kg. Most of
     /// that sits above normal drop temperatures, so only a fraction is released
-    /// before the beans come out — the model tracks the unreacted share and
-    /// typically spends a quarter to a third of this budget by drop.
+    /// before the beans come out — the model tracks the unreacted share and spends
+    /// roughly a tenth of this budget by drop, which is what "most of it sits above
+    /// drop temperature" actually implies.
     /// </remarks>
     public double ExothermEnergy { get; init; } = 350_000.0;
 
     /// <summary>Fraction of the remaining reactant consumed per second at 200 degC (1/s).</summary>
-    public double ExothermRateAt200C { get; init; } = 1.9e-3;
+    /// <remarks>
+    /// Fitted, and the single most consequential number in the file: it decides
+    /// whether the player's dial still matters after first crack. Self-heating and
+    /// the drum-to-bean path are comparable in a real roaster, which is why a roaster
+    /// can reduce gas across the crack at all. Set this much higher and the beans
+    /// heat themselves against a drum that has gone colder than they are — the roast
+    /// finishes regardless of the dial, and development stops being played.
+    /// </remarks>
+    public double ExothermRateAt200C { get; init; } = 4.0e-4;
 
     /// <summary>Activation energy for the roast reactions (J/mol).</summary>
     /// <remarks>
@@ -230,10 +282,12 @@ public sealed record RoasterConfig
     public double MaxRoastSeconds { get; init; } = 900.0;
 
     /// <summary>
-    /// The reference machine. Tuned on the reference dial trace against published
-    /// targets: turning point near 00:50, a rate of rise gliding to roughly
-    /// 10 degC/min by mid-roast and 5 degC/min at first crack, first crack near
-    /// 09:00, and a drop near 210C. Re-run tools/RoastLab after changing any of it.
+    /// The reference machine. Derived as a whole against published targets rather
+    /// than fitted knob by knob: turning point near 01:00 at 80-95C, a rate of rise
+    /// gliding to roughly 11 degC/min by mid-roast and 8 at first crack, first crack
+    /// near 09:20, a drop near 213C at a development ratio near 25%, and the drum
+    /// staying hotter than the beans the whole way. Re-run tools/RoastLab after
+    /// changing any of it.
     /// </summary>
     public static RoasterConfig Default { get; } = new();
 }
