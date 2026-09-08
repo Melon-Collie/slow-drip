@@ -44,6 +44,7 @@ public sealed class RoasterSim
 
     private double _time;
     private double _burner;
+    private double _airflow;
     private double _envTemp;
     private double _beanTemp;
     private double _beanProbe;
@@ -65,6 +66,10 @@ public sealed class RoasterSim
         _ror = new RateOfRiseMeter(_cfg.RorWindow, FixedDt, _cfg.RorSmoothing);
         _beans = new BeanPopulation(_charge.BeanCount, _charge.CrackTempMean, _charge.CrackTempSpread);
 
+        // Start the fan where the machine was characterised, so a pilot that never
+        // touches the damper gets the single-body model this grew out of.
+        _airflow = _cfg.AirflowNominal;
+
         _envTemp = _cfg.ChargeTemp;
         _beanTemp = _cfg.AmbientTemp;
         _coreMoisture = _charge.Moisture * _charge.CoreMoistureFraction;
@@ -79,11 +84,20 @@ public sealed class RoasterSim
     /// <summary>Set the dial. Clamped to 0..1. Takes effect on the next step.</summary>
     public void SetBurner(double value) => _burner = Math.Clamp(value, 0.0, 1.0);
 
+    /// <summary>Set the damper, as a fraction of what the fan can do. Clamped to 0..1.</summary>
+    /// <remarks>
+    /// Opening it moves more heat into the beans and more heat out of the exhaust at
+    /// the same time. The two do not scale together, which is what makes this a
+    /// separate control rather than a second way to spell "more gas".
+    /// </remarks>
+    public void SetAirflow(double value) => _airflow = Math.Clamp(value, 0.0, 1.0);
+
     /// <summary>Current state, safe to hand to presentation.</summary>
     public RoastState State => new()
     {
         Time = _time,
         Burner = _burner,
+        Airflow = _airflow,
         EnvTemp = _envTemp,
         BeanTemp = _beanTemp,
         BeanProbe = _beanProbe,
@@ -110,12 +124,22 @@ public sealed class RoasterSim
         // Bean thermal mass, water included. Wetter beans are heavier to move.
         var beanCapacity = dryMass * (_cfg.BeanSpecificHeat + moisture * _cfg.WaterSpecificHeat);
 
-        // Denser beans take heat more slowly for the same mass.
-        var beanConductance = _cfg.BeanConductance * dryMass / _charge.DensityFactor;
+        // Airflow, as a ratio against the setting the machine was characterised at.
+        // Convection scales sublinearly with it; the exhaust it drives scales linearly.
+        // Everything below is 1.0 at nominal, which is what keeps this a superset of
+        // the single-body model rather than a retune of it.
+        var flowRatio = _cfg.AirflowNominal <= 0.0 ? 1.0 : _airflow / _cfg.AirflowNominal;
+        var convectionScale = Math.Pow(flowRatio, _cfg.AirflowExponent);
+
+        // Denser beans take heat more slowly for the same mass. The contact half of
+        // that path is the beans against the drum wall and does not care about the fan.
+        var beanConductance = _cfg.BeanConductance * dryMass / _charge.DensityFactor
+            * (_cfg.BeanConductionShare + (1.0 - _cfg.BeanConductionShare) * convectionScale);
 
         var qBurner = _burner * _cfg.BurnerPower;
         var qEnvToBean = beanConductance * (_envTemp - _beanTemp);
-        var qEnvLoss = _cfg.EnvLossConductance * (_envTemp - _cfg.AmbientTemp);
+        var qEnvLoss = (_cfg.EnvLossConductance + _cfg.ExhaustConductance * flowRatio)
+            * (_envTemp - _cfg.AmbientTemp);
 
         var drive = Math.Max(0.0, _beanTemp - _cfg.DryingOnset);
 
@@ -173,7 +197,10 @@ public sealed class RoasterSim
         var evaporated = 0.0;
         if (_surfaceMoisture > 0.0)
         {
-            var rate = _cfg.DryingCoefficient * _surfaceMoisture * drive; // per second, dry basis
+            // Part of drying is heat reaching the water and part is carrying the vapour
+            // away; only the second half answers the damper. A shut drum saturates.
+            var rate = _cfg.DryingCoefficient * _surfaceMoisture * drive
+                * (1.0 - _cfg.DryingAirflowShare + _cfg.DryingAirflowShare * convectionScale);
             evaporated = Math.Min(_surfaceMoisture, rate * dt);
         }
 

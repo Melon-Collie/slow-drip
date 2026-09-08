@@ -15,6 +15,13 @@ public interface IRoastPilot
     /// <summary>Dial position for this instant, given what the roaster can see.</summary>
     double Burner(in RoastState state);
 
+    /// <summary>
+    /// Damper position for this instant. Defaults to leaving it where it is, which
+    /// for a fresh roast is the setting the machine was characterised at — so a pilot
+    /// written before the damper existed still plays the roast it used to.
+    /// </summary>
+    double Airflow(in RoastState state) => state.Airflow;
+
     /// <summary>True when the beans should come out.</summary>
     bool Drop(in RoastState state);
 

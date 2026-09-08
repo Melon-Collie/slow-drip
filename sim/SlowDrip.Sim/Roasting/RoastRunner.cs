@@ -76,12 +76,14 @@ public static class RoastRunner
         // where the player actually set it rather than at zero.
         var state = sim.State;
         sim.SetBurner(pilot.Burner(state));
+        sim.SetAirflow(pilot.Airflow(state));
         state = sim.State;
         Record(log, state);
 
         for (var step = 1; step <= totalSteps; step++)
         {
             sim.SetBurner(pilot.Burner(state));
+            sim.SetAirflow(pilot.Airflow(state));
             sim.Step();
             state = sim.State;
 
@@ -112,7 +114,7 @@ public static class RoastRunner
     }
 
     private static void Record(RoastLog log, in RoastState s) => log.Add(new RoastSample(
-        s.Time, s.Burner, s.EnvTemp, s.BeanTemp, s.BeanProbe, s.RateOfRise,
+        s.Time, s.Burner, s.Airflow, s.EnvTemp, s.BeanTemp, s.BeanProbe, s.RateOfRise,
         s.SurfaceMoisture, s.CoreMoisture, s.ExothermWatts, s.NetBeanWatts,
         s.CrackedFraction, s.PopsPerSecond, s.Phase));
 }

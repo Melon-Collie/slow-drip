@@ -12,6 +12,9 @@ public readonly record struct RoastState
     /// <summary>Dial position, 0..1.</summary>
     public double Burner { get; init; }
 
+    /// <summary>Damper position, 0..1 of what the fan can do.</summary>
+    public double Airflow { get; init; }
+
     /// <summary>Drum and air temperature (degC).</summary>
     public double EnvTemp { get; init; }
 

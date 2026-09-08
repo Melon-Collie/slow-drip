@@ -37,13 +37,70 @@ public sealed record RoasterConfig
     /// <summary>Effective heat capacity of drum and air (J/K). Sets the burner-to-drum lag.</summary>
     public double EnvHeatCapacity { get; init; } = 2500.0;
 
-    /// <summary>Conductance from drum to room (W/K). Sets the ceiling temperature.</summary>
+    /// <summary>Conductance from drum shell to room (W/K), independent of airflow.</summary>
     /// <remarks>
-    /// This is how much of the burner is spent holding the drum hot rather than
-    /// roasting, so it decides how much of the dial's travel is usable. At 250C it
-    /// costs about 1.5 kW of the 4.3 kW available.
+    /// This and <see cref="ExhaustConductance"/> together are how much of the burner
+    /// is spent holding the drum hot rather than roasting, so they decide how much of
+    /// the dial's travel is usable. At 250C they cost about 1.5 kW of the 4.3 kW
+    /// available when the fan sits at <see cref="AirflowNominal"/>.
     /// </remarks>
-    public double EnvLossConductance { get; init; } = 6.5;
+    public double EnvLossConductance { get; init; } = 3.0;
+
+    // ---- Airflow -----------------------------------------------------------
+
+    /// <summary>
+    /// Fan setting the machine's other constants are characterised at (0..1).
+    /// </summary>
+    /// <remarks>
+    /// Airflow is expressed as a fraction of what the fan can do, and every airflow
+    /// term is a ratio against this value — so at exactly this setting the model
+    /// reduces to the single-body one it grew out of. It sits below mid-travel
+    /// deliberately: a roaster wants room to open the damper as well as close it.
+    /// </remarks>
+    public double AirflowNominal { get; init; } = 0.60;
+
+    /// <summary>
+    /// Share of the bean's heat that arrives by contact with the drum rather than
+    /// from the air moving past it.
+    /// </summary>
+    /// <remarks>
+    /// Drum roasters are convection-dominated; the usual figure is two thirds or more
+    /// of the heat arriving with the air. The rest is the beans tumbling against a hot
+    /// steel wall, which no amount of fan changes. Splitting them is what stops the
+    /// damper being a second gas dial: airflow moves the convective half only.
+    /// </remarks>
+    public double BeanConductionShare { get; init; } = 0.30;
+
+    /// <summary>Exponent relating airflow to the convective heat transfer coefficient.</summary>
+    /// <remarks>
+    /// Forced convection scales with flow to roughly the 0.8 power across the usual
+    /// correlations, so doubling the fan buys well under double the heat. That
+    /// diminishing return is half of why the damper has an optimum.
+    /// </remarks>
+    public double AirflowExponent { get; init; } = 0.80;
+
+    /// <summary>
+    /// Heat carried out of the drum by the exhaust at <see cref="AirflowNominal"/> (W/K).
+    /// </summary>
+    /// <remarks>
+    /// The other half of the damper's optimum, and the reason it is not a free
+    /// improvement: air moving past the beans faster also leaves faster, and it leaves
+    /// hot. This term scales linearly with flow while the convective gain scales at
+    /// 0.8, so past some setting the fan costs the drum more than it gives the beans.
+    /// </remarks>
+    public double ExhaustConductance { get; init; } = 3.5;
+
+    /// <summary>
+    /// Share of evaporation that is limited by carrying vapour away rather than by
+    /// heat reaching the water.
+    /// </summary>
+    /// <remarks>
+    /// A closed drum saturates: the water is willing to leave and there is nowhere for
+    /// it to go. That is the mechanism behind a stuffy roast drying slowly and baking,
+    /// and it is why the damper matters most in the phase where nothing else is
+    /// happening.
+    /// </remarks>
+    public double DryingAirflowShare { get; init; } = 0.50;
 
     // ---- Bean body ---------------------------------------------------------
 

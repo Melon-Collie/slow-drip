@@ -37,10 +37,17 @@ Two coupled thermal bodies, moisture in two pools, a depleting exothermic source
 and a lagged sensor.
 
 ```
+h_bean  = h_contact  +  h_convective * airflow^0.8
+h_loss  = h_shell    +  h_exhaust    * airflow
+
 dET/dt = (burner*power  -  h_bean*(ET - BT)  -  h_loss*(ET - ambient)) / C_env
 dBT/dt = (h_bean*(ET - BT)  +  exotherm(BT)  -  evaporation(surface) - flash(venting)) / C_bean
 probe += (0.9*BT + 0.1*ET - probe) * dt/(tau + dt)
 ```
+
+Every airflow term is a ratio against `AirflowNominal`, so at that one setting the
+model reduces exactly to the single-body one it grew out of — the damper is a
+superset, not a retune, and the reference roasts did not move when it landed.
 
 Nothing delays an input on purpose. The roughly twenty seconds of dead time that
 design.md §9.4 builds the skill ceiling on is what two lags in series plus a slow
@@ -174,6 +181,47 @@ there, more heat and development shortens, with a band in between. That is the
 fairness property §9.4 wants, and nothing was aimed at it directly — it falls out
 of the energy balance being right.
 
+## The damper is a second axis, not a second gas dial
+
+An earlier version of this model swept airflow as a single multiplier on
+everything it touches and found it near-redundant with the gas. Splitting it is
+what changes that. Convection scales with flow to the 0.8 power; the exhaust it
+drives scales linearly; the beans tumbling against a hot steel wall do not scale
+with it at all. Three different exponents on one control is what gives it an
+interior optimum and a character of its own.
+
+Held at the reference gas, sweeping the damper:
+
+| damper | yellowing | crack | drop | dev | drum at crack | moisture at crack |
+|---|---|---|---|---|---|---|
+| 0.20 | 5:39 | 9:27 | 10:46 | 12% | **323°C** | 0.0447 |
+| 0.40 | 4:58 | 9:01 | 11:12 | 19% | 278°C | 0.0382 |
+| 0.60 *(nominal)* | 4:43 | 9:18 | 12:25 | 25% | 249°C | 0.0309 |
+| 0.80 | 4:42 | 10:08 | — | — | 228°C | 0.0235 |
+| 1.00 | 4:53 | 11:38 | — | — | **213°C** | 0.0161 |
+
+Drying is fastest around 0.70 and slower at both ends — shut the drum and the
+vapour has nowhere to go, open it and the heat leaves before it reaches the beans.
+Past 0.70 the exhaust wins outright and the roast cannot finish at all.
+
+The test that matters is whether the gas can reproduce any of it. Matching each
+damper setting to the gas that cracks at the same second:
+
+| damper | matched gas | crack | drum at crack | moisture at crack | dev |
+|---|---|---|---|---|---|
+| 0.30 | 0.295 | 9:18 | 279°C | 0.0400 | 26% |
+| 0.60 | 0.455 | 9:18 | 249°C | 0.0309 | 24% |
+
+**Two roasts that reach first crack at the same second, with a 30°C different drum
+behind them and 30% more water still in the beans.** The gas dial cannot express
+that: it sets how fast, while the damper sets *how* — how hot the drum has to be to
+get there, and how much of the water has left by the time you arrive. Those are the
+two things scorching and the crash are made of.
+
+It also leaves the mechanic alone. Dead time measures 19.3–20.5s across the whole
+damper range, because the lag lives in the probe and the rate-of-rise filter rather
+than in the thermal path.
+
 ## The energy balance, and why it is the whole thing
 
 Where the beans' heat comes from over a textbook roast:
@@ -269,12 +317,11 @@ Two things the model still does not reproduce:
   the crack window makes the crash worse. Here a late cut instead leaves too much
   heat in the drum, so the roast arrives at drop underdeveloped. Same verdict,
   different mechanism.
-- **Airflow is not modelled.** Swept as a single multiplier on convective coupling,
-  drum losses, and moisture removal it is near-redundant with the gas dial. A
-  meaningful airflow control needs the heat path split into convective and
-  conductive halves and the bean split into surface and core nodes — which would
-  also get tipping and scorching as distinct defects, and the real cause of first
-  crack. This is the next piece of work.
+- **Scorching and tipping are still not modelled.** They are surface-burn defects
+  and the bean is one node, so the best available proxy is peak drum temperature.
+  That is a formula wearing a mechanism's costume, and the honest version needs the
+  bean split into surface and core — which would also give first crack a real cause.
+  This is the next piece of work.
 
 ## Tuning
 
