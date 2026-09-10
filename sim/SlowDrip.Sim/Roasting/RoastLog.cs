@@ -26,6 +26,8 @@ public readonly record struct RoastSample(
     double Airflow,
     double EnvTemp,
     double BeanTemp,
+    double BeanSurfaceTemp,
+    double BeanCoreTemp,
     double BeanProbe,
     double RateOfRise,
     double SurfaceMoisture,
@@ -38,6 +40,9 @@ public readonly record struct RoastSample(
 {
     /// <summary>Total remaining water, dry basis.</summary>
     public double Moisture => SurfaceMoisture + CoreMoisture;
+
+    /// <summary>How far the outside of the bean is running ahead of the inside (degC).</summary>
+    public double SurfaceCoreGap => BeanSurfaceTemp - BeanCoreTemp;
 }
 
 /// <summary>
@@ -99,7 +104,7 @@ public sealed class RoastLog
     public string ToCsv()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("time_s,burner,airflow,env_c,bean_c,probe_c,ror_c_per_min,surface_moisture,core_moisture,exotherm_w,net_bean_w,cracked_fraction,pops_per_s,phase");
+        sb.AppendLine("time_s,burner,airflow,env_c,bean_c,surface_c,core_c,probe_c,ror_c_per_min,surface_moisture,core_moisture,exotherm_w,net_bean_w,cracked_fraction,pops_per_s,phase");
         foreach (var s in _samples)
         {
             sb.Append(F(s.Time)).Append(',')
@@ -107,6 +112,8 @@ public sealed class RoastLog
               .Append(F(s.Airflow)).Append(',')
               .Append(F(s.EnvTemp)).Append(',')
               .Append(F(s.BeanTemp)).Append(',')
+              .Append(F(s.BeanSurfaceTemp)).Append(',')
+              .Append(F(s.BeanCoreTemp)).Append(',')
               .Append(F(s.BeanProbe)).Append(',')
               .Append(F(s.RateOfRise)).Append(',')
               .Append(F(s.SurfaceMoisture)).Append(',')

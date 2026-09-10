@@ -444,7 +444,7 @@ public class RoasterSimTests
         var lines = log.ToCsv().TrimEnd('\n').Split('\n');
 
         Assert.Equal(log.Samples.Count + 1, lines.Length);
-        Assert.StartsWith("time_s,burner,airflow,env_c", lines[0]);
+        Assert.StartsWith("time_s,burner,airflow,env_c,bean_c,surface_c,core_c", lines[0]);
     }
 }
 

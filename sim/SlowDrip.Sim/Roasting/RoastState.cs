@@ -19,10 +19,32 @@ public readonly record struct RoastState
     public double EnvTemp { get; init; }
 
     /// <summary>
-    /// True bean temperature (degC). Not observable in game — the player reads
-    /// <see cref="BeanProbe"/>. Exposed for tests and tuning.
+    /// True bean temperature (degC), heat-capacity weighted across the bean. Not
+    /// observable in game — the player reads <see cref="BeanProbe"/>. Exposed for
+    /// tests and tuning.
     /// </summary>
     public double BeanTemp { get; init; }
+
+    /// <summary>Temperature of the bean's outer shell (degC), where the drum heats it.</summary>
+    /// <remarks>
+    /// The hottest part of the bean and the first thing to burn. Not observable: no
+    /// instrument on a drum roaster reads it, which is exactly why scorching is a
+    /// defect you find out about afterwards.
+    /// </remarks>
+    public double BeanSurfaceTemp { get; init; }
+
+    /// <summary>Temperature of the bean's core (degC), where the pressure builds.</summary>
+    public double BeanCoreTemp { get; init; }
+
+    /// <summary>
+    /// How far the outside of the bean is running ahead of the inside (degC).
+    /// </summary>
+    /// <remarks>
+    /// The quantity behind tipping and scorching. Two roasts can put the beans at the
+    /// same average temperature with very different gradients across them, and the
+    /// damper is the control that decides which.
+    /// </remarks>
+    public double SurfaceCoreGap => BeanSurfaceTemp - BeanCoreTemp;
 
     /// <summary>Bean probe reading (degC). This is the number the player sees.</summary>
     public double BeanProbe { get; init; }

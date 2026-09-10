@@ -40,10 +40,17 @@ and a lagged sensor.
 h_bean  = h_contact  +  h_convective * airflow^0.8
 h_loss  = h_shell    +  h_exhaust    * airflow
 
-dET/dt = (burner*power  -  h_bean*(ET - BT)  -  h_loss*(ET - ambient)) / C_env
-dBT/dt = (h_bean*(ET - BT)  +  exotherm(BT)  -  evaporation(surface) - flash(venting)) / C_bean
-probe += (0.9*BT + 0.1*ET - probe) * dt/(tau + dt)
+dET/dt  = (burner*power - h_bean*(ET - Ts) - h_loss*(ET - ambient)) / C_env
+dTs/dt  = (h_bean*(ET - Ts) - k_in*(Ts - Tc) + exo(Ts) - evaporation(surface)) / C_surface
+dTc/dt  = (k_in*(Ts - Tc)                   + exo(Tc) - flash(venting))        / C_core
+BT      = (C_surface*Ts + C_core*Tc) / (C_surface + C_core)
+probe  += (0.9*BT + 0.1*ET - probe) * dt/(tau + dt)
 ```
+
+Heat arrives at the bean's shell and travels inward, so the outside runs ahead of
+the inside — about 22°C at the peak of drying, closing to 3°C by first crack. Free
+water leaves the shell at the shell's temperature; a ruptured bean's flash comes
+out of its core, so the crash cools the inside and slows the beans still to go.
 
 Every airflow term is a ratio against `AirflowNominal`, so at that one setting the
 model reduces exactly to the single-body one it grew out of — the damper is a
@@ -156,10 +163,10 @@ the same.
 
 | | Outcome | Ended | Cost vs a good roast |
 |---|---|---|---|
-| textbook | Dropped | 12.4 min | — |
-| cut too shallow | Dropped | 11.3 min | 91% |
-| cut too deep | Abandoned | 13.0 min | 105% |
-| mixed screen | Dropped | 12.8 min | 103% |
+| textbook | Dropped | 12.7 min | — |
+| cut too shallow | Dropped | 11.5 min | 91% |
+| cut too deep | Abandoned | 13.5 min | 106% |
+| mixed screen | Dropped | 13.0 min | 102% |
 | baked | Timed out | 15.0 min | 121% |
 | dense lot, fixed trace | Timed out | 15.0 min | 121% |
 
@@ -257,9 +264,9 @@ inflated to compensate.
 
 | Roast | Reads |
 |---|---|
-| `Textbook` | Published protocol played straight. Crack 09:18, drop 12:24 at 213°C, 25% development |
-| `CutTooDeep` | Pre-crack gas taken to 0.26. Loses momentum, goes net-negative, given up on at 13:00 |
-| `CutTooShallow` | Barely a reduction at all. Finishes early at 11:16, 18% development — underdeveloped |
+| `Textbook` | Published protocol played straight. Crack 09:31, drop 12:39 at 213°C, 25% development |
+| `CutTooDeep` | Pre-crack gas taken to 0.26. Loses momentum, goes net-negative, given up on at 13:30 |
+| `CutTooShallow` | Barely a reduction at all. Finishes early at 11:32, 18% development — underdeveloped |
 | `Baked` | Heat pulled at 00:55. Drying floor near 2°C/min, crack four minutes late, runs the clock out |
 | `Scorch` | Full burner. Bolts through first crack and hits drop 28s later: burnt outside, raw inside |
 | `HandPlayed` | A fixed trace that works — on the lot it was made for |
@@ -317,11 +324,31 @@ Two things the model still does not reproduce:
   the crack window makes the crash worse. Here a late cut instead leaves too much
   heat in the drum, so the roast arrives at drop underdeveloped. Same verdict,
   different mechanism.
-- **Scorching and tipping are still not modelled.** They are surface-burn defects
-  and the bean is one node, so the best available proxy is peak drum temperature.
-  That is a formula wearing a mechanism's costume, and the honest version needs the
-  bean split into surface and core — which would also give first crack a real cause.
-  This is the next piece of work.
+- **The bean gradient runs the wrong way against the damper, and radiation is why.**
+  Roasters describe a shut damper on a hot drum as what scorches beans. This model
+  says the opposite: matched on crack time, a shut damper at 299°C gives a *cooler*
+  bean surface than an open one at 238°C. The gradient tracks heat *flux*, and
+  closing the damper cuts the convective path, so less heat crosses into the bean
+  even though the drum behind it is hotter.
+
+  The missing term is radiation. A drum at roasting temperature glows at the beans;
+  the flux goes as the fourth power of its temperature and does not care about the
+  fan at all. Closing the damper therefore starves convection while leaving
+  radiation untouched *and* forces the burner to run the drum hotter — which is
+  exactly the combination roasters describe.
+
+  Adding it as `σ_eff·(ET⁴ − Ts⁴)` does fix the direction: at a radiant share near
+  half the path, surface temperature at first crack goes from 202.7°C with the
+  damper shut to 195.3°C wide open, monotonically. It was not kept, for two reasons.
+  Radiation is not a linear substitution — calibrated at one operating point it
+  undershoots everywhere the beans are colder, which front-loads the curve and moved
+  mid-roast rate of rise from 11 to 14°C/min, failing eight reference claims. And
+  the quantity it corrects is one nothing reads yet. It belongs with the scorch
+  defect, calibrated against it, rather than ahead of it.
+
+- **Scorching and tipping are still not modelled.** The gradient they are made of now
+  exists and is measurable; what is missing is the accounting that turns it into a
+  defect, and the radiant term above that makes it answer the damper correctly.
 
 ## Tuning
 

@@ -46,7 +46,8 @@ public sealed class RoasterSim
     private double _burner;
     private double _airflow;
     private double _envTemp;
-    private double _beanTemp;
+    private double _surfaceTemp;
+    private double _coreTemp;
     private double _beanProbe;
     private double _surfaceMoisture;
     private double _coreMoisture;
@@ -71,7 +72,8 @@ public sealed class RoasterSim
         _airflow = _cfg.AirflowNominal;
 
         _envTemp = _cfg.ChargeTemp;
-        _beanTemp = _cfg.AmbientTemp;
+        _surfaceTemp = _cfg.AmbientTemp;
+        _coreTemp = _cfg.AmbientTemp;
         _coreMoisture = _charge.Moisture * _charge.CoreMoistureFraction;
         _surfaceMoisture = _charge.Moisture - _coreMoisture;
 
@@ -99,7 +101,9 @@ public sealed class RoasterSim
         Burner = _burner,
         Airflow = _airflow,
         EnvTemp = _envTemp,
-        BeanTemp = _beanTemp,
+        BeanTemp = BeanTemp,
+        BeanSurfaceTemp = _surfaceTemp,
+        BeanCoreTemp = _coreTemp,
         BeanProbe = _beanProbe,
         RateOfRise = _ror.Value,
         SurfaceMoisture = _surfaceMoisture + _ventingMoisture,
@@ -114,15 +118,41 @@ public sealed class RoasterSim
         Phase = CurrentPhase(),
     };
 
+    /// <summary>
+    /// Bulk bean temperature: the two nodes averaged by heat capacity, which is what
+    /// a probe buried in the mass is reading toward.
+    /// </summary>
+    private double BeanTemp
+    {
+        get
+        {
+            var (cs, cc) = NodeCapacities();
+            return (cs * _surfaceTemp + cc * _coreTemp) / (cs + cc);
+        }
+    }
+
+    /// <summary>Heat capacity of the surface and core nodes (J/K), water included.</summary>
+    private (double Surface, double Core) NodeCapacities()
+    {
+        var dryMass = _charge.DryMassKg;
+        var surfaceSolids = dryMass * _cfg.BeanSurfaceFraction;
+        var coreSolids = dryMass - surfaceSolids;
+
+        // Surface water sits in the shell; core water sits in the core. Water on its
+        // way out of a ruptured bean is still in the shell until it leaves.
+        var cs = surfaceSolids * _cfg.BeanSpecificHeat
+            + dryMass * (_surfaceMoisture + _ventingMoisture) * _cfg.WaterSpecificHeat;
+        var cc = coreSolids * _cfg.BeanSpecificHeat
+            + dryMass * _coreMoisture * _cfg.WaterSpecificHeat;
+        return (cs, cc);
+    }
+
     /// <summary>Advance exactly one <see cref="FixedDt"/>.</summary>
     public void Step()
     {
         var dt = FixedDt;
         var dryMass = _charge.DryMassKg;
-        var moisture = _surfaceMoisture + _coreMoisture;
-
-        // Bean thermal mass, water included. Wetter beans are heavier to move.
-        var beanCapacity = dryMass * (_cfg.BeanSpecificHeat + moisture * _cfg.WaterSpecificHeat);
+        var beanTemp = BeanTemp;
 
         // Airflow, as a ratio against the setting the machine was characterised at.
         // Convection scales sublinearly with it; the exhaust it drives scales linearly.
@@ -137,18 +167,25 @@ public sealed class RoasterSim
             * (_cfg.BeanConductionShare + (1.0 - _cfg.BeanConductionShare) * convectionScale);
 
         var qBurner = _burner * _cfg.BurnerPower;
-        var qEnvToBean = beanConductance * (_envTemp - _beanTemp);
+
+        // Heat arrives at the shell and travels inward from there. Coffee conducts
+        // badly, so how far the outside runs ahead of the inside is set here.
+        var qEnvToBean = beanConductance * (_envTemp - _surfaceTemp);
+        var qSurfaceToCore = _cfg.BeanInternalConductance * dryMass * (_surfaceTemp - _coreTemp);
         var qEnvLoss = (_cfg.EnvLossConductance + _cfg.ExhaustConductance * flowRatio)
             * (_envTemp - _cfg.AmbientTemp);
 
-        var drive = Math.Max(0.0, _beanTemp - _cfg.DryingOnset);
+        // Free water sits in the shell and leaves at the shell's temperature; the
+        // core dries on its own, cooler schedule.
+        var surfaceDrive = Math.Max(0.0, _surfaceTemp - _cfg.DryingOnset);
+        var coreDrive = Math.Max(0.0, _coreTemp - _cfg.DryingOnset);
 
         // Beans rupture individually. A wet batch resists: the structure is not
         // brittle yet and the extra water is extra mass to heat, so the whole
         // population's thresholds sit higher and come down as it dries.
         var uncrackedBefore = _beans.Count - _beans.Cracked;
         var wetness = Math.Max(0.0, _surfaceMoisture + _coreMoisture - _cfg.CrackDryReference);
-        var popped = _beans.CrackUpTo(_beanTemp - _cfg.MoistureCrackPenalty * wetness);
+        var popped = _beans.CrackUpTo(beanTemp - _cfg.MoistureCrackPenalty * wetness);
 
         // Core moisture leaves two ways, and they are different events.
         //
@@ -164,7 +201,7 @@ public sealed class RoasterSim
         var flashed = 0.0;
         if (_coreMoisture > 0.0)
         {
-            var rate = _cfg.CoreMigrationCoefficient * _coreMoisture * drive;
+            var rate = _cfg.CoreMigrationCoefficient * _coreMoisture * coreDrive;
             migrated = Math.Min(_coreMoisture, rate * dt);
             _coreMoisture -= migrated;
             _surfaceMoisture += migrated;
@@ -199,37 +236,65 @@ public sealed class RoasterSim
         {
             // Part of drying is heat reaching the water and part is carrying the vapour
             // away; only the second half answers the damper. A shut drum saturates.
-            var rate = _cfg.DryingCoefficient * _surfaceMoisture * drive
+            var rate = _cfg.DryingCoefficient * _surfaceMoisture * surfaceDrive
                 * (1.0 - _cfg.DryingAirflowShare + _cfg.DryingAirflowShare * convectionScale);
             evaporated = Math.Min(_surfaceMoisture, rate * dt);
         }
 
-        var qEvaporation = (evaporated + flashed) / dt * dryMass * _cfg.LatentHeatOfVaporisation;
+        // Both cost latent heat, but they cost it in different places: free water
+        // leaves the shell, while a ruptured bean's flash comes out of its core.
+        var qEvapSurface = evaporated / dt * dryMass * _cfg.LatentHeatOfVaporisation;
+        var qFlashCore = flashed / dt * dryMass * _cfg.LatentHeatOfVaporisation;
+        var qEvaporation = qEvapSurface + qFlashCore;
 
         // Self-heating, with the reactant it consumes tracked so the roast cannot
         // generate heat for ever.
-        var reacted = 0.0;
+        // The reactions run everywhere in the bean, each part at its own temperature,
+        // so a scorching surface burns through its share of the budget early.
+        var exothermSurface = 0.0;
+        var exothermCore = 0.0;
         _exothermWatts = 0.0;
         if (_reactantRemaining > 0.0)
         {
-            var k = ExothermRateConstant(_beanTemp);
-            reacted = Math.Min(_reactantRemaining, k * _reactantRemaining * dt);
-            _exothermWatts = reacted / dt * _cfg.ExothermEnergy * dryMass;
-            _reactantRemaining -= reacted;
+            var surfaceShare = _reactantRemaining * _cfg.BeanSurfaceFraction;
+            var coreShare = _reactantRemaining - surfaceShare;
+            var reactedSurface = ExothermRateConstant(_surfaceTemp) * surfaceShare * dt;
+            var reactedCore = ExothermRateConstant(_coreTemp) * coreShare * dt;
+
+            var total = reactedSurface + reactedCore;
+            if (total > _reactantRemaining)
+            {
+                var scale = _reactantRemaining / total;
+                reactedSurface *= scale;
+                reactedCore *= scale;
+                total = _reactantRemaining;
+            }
+
+            var energy = _cfg.ExothermEnergy * dryMass / dt;
+            exothermSurface = reactedSurface * energy;
+            exothermCore = reactedCore * energy;
+            _exothermWatts = exothermSurface + exothermCore;
+            _reactantRemaining -= total;
         }
 
+        // Net into the bean mass as a whole: what crosses the shell from the drum,
+        // plus what the beans make, minus what the water takes. Internal conduction
+        // moves heat around inside and so cancels out of the total.
         _netBeanWatts = qEnvToBean + _exothermWatts - qEvaporation;
 
+        var (capSurface, capCore) = NodeCapacities();
         var dEnv = (qBurner - qEnvToBean - qEnvLoss) / _cfg.EnvHeatCapacity;
-        var dBean = _netBeanWatts / beanCapacity;
+        var dSurface = (qEnvToBean - qSurfaceToCore + exothermSurface - qEvapSurface) / capSurface;
+        var dCore = (qSurfaceToCore + exothermCore - qFlashCore) / capCore;
 
         _envTemp += dEnv * dt;
-        _beanTemp += dBean * dt;
+        _surfaceTemp += dSurface * dt;
+        _coreTemp += dCore * dt;
         _surfaceMoisture -= evaporated;
 
         // Sensor lag, against a reading that is mostly bean and partly drum.
         // Semi-implicit so the probe cannot overshoot at large dt.
-        var probeTarget = (1.0 - _cfg.ProbeEnvBleed) * _beanTemp + _cfg.ProbeEnvBleed * _envTemp;
+        var probeTarget = (1.0 - _cfg.ProbeEnvBleed) * BeanTemp + _cfg.ProbeEnvBleed * _envTemp;
         var previousProbe = _beanProbe;
         _beanProbe += (probeTarget - _beanProbe) * (dt / (_cfg.ProbeTimeConstant + dt));
 
@@ -277,6 +342,6 @@ public sealed class RoasterSim
     {
         if (_firstCrack) return RoastPhase.Development;
         if (!_pastTurningPoint) return RoastPhase.Charge;
-        return _beanTemp < _cfg.DryingEndTemp ? RoastPhase.Drying : RoastPhase.Maillard;
+        return BeanTemp < _cfg.DryingEndTemp ? RoastPhase.Drying : RoastPhase.Maillard;
     }
 }

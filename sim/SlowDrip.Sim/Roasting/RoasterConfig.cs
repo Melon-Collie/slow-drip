@@ -104,8 +104,39 @@ public sealed record RoasterConfig
 
     // ---- Bean body ---------------------------------------------------------
 
-    /// <summary>Conductance from drum to bean mass (W/K per kg of dry bean).</summary>
+    /// <summary>Conductance from drum to bean surface (W/K per kg of dry bean).</summary>
     public double BeanConductance { get; init; } = 8.0;
+
+    /// <summary>
+    /// Share of the bean's dry mass in the outer shell that the drum heats directly.
+    /// </summary>
+    /// <remarks>
+    /// A bean is not isothermal. Heat arrives at its surface and has to travel
+    /// inward, so the outside runs ahead of the inside all roast long. Splitting the
+    /// bean is what makes that gradient a quantity rather than an assumption — and
+    /// the gradient is what scorching and tipping are, and what the damper was
+    /// silently changing with nothing to show for it.
+    /// </remarks>
+    public double BeanSurfaceFraction { get; init; } = 0.25;
+
+    /// <summary>
+    /// Conductance from bean surface to bean core (W/K per kg of dry bean).
+    /// </summary>
+    /// <remarks>
+    /// Coffee is a poor conductor, so this is the term that decides how far the
+    /// outside can run ahead of the inside. Low enough and a hard, fast roast burns
+    /// the surface while the middle is still raw; high enough and the model collapses
+    /// back to the single-node one it grew out of.
+    /// <para>
+    /// Fitted, and this value is the loose end in the split: it puts about 22C across
+    /// the bean at the peak of the drying phase and 3C by first crack. A stiffer bean
+    /// — 20 rather than 40 — reads closer to the gradients bean-scale models report at
+    /// the crack, but moves the reference roasts enough to need re-deriving, and the
+    /// sources that would settle it were not reachable. Worth revisiting alongside the
+    /// scorch defect, which is the thing that will actually care.
+    /// </para>
+    /// </remarks>
+    public double BeanInternalConductance { get; init; } = 40.0;
 
     /// <summary>
     /// Specific heat of dry coffee solids (J/(kg*K)).
